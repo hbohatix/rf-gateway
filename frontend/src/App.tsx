@@ -31,11 +31,65 @@ type Health = {
 };
 
 
+type MMDVMProcessStatus = {
+  running: boolean;
+  ready: boolean;
+  pid: number | null;
+  udp_port: number;
+};
+
+
+type MMDVMStatus = {
+  runtime_active: boolean;
+  runtime_ready: boolean;
+
+  protocol: Protocol | null;
+
+  frequency_hz: number | null;
+  channel_frequency_hz: number | null;
+
+  sdr_tx_center_frequency_hz: number | null;
+  sdr_rx_center_frequency_hz: number | null;
+
+  digital_if_hz: number | null;
+
+  sample_rate_hz: number | null;
+  actual_tx_rate_hz: number | null;
+  actual_rx_rate_hz: number | null;
+
+  modem_mode: string | null;
+
+  rf_tx_active: boolean;
+  tx_stream_active: boolean;
+
+  hardware_open: boolean;
+  iq_streams_active: boolean;
+
+  hardware_version: string | null;
+  driver_name: string | null;
+
+  mmdvm_iq: MMDVMProcessStatus;
+  mmdvm_host: MMDVMProcessStatus;
+
+  runtime_config: string;
+  last_error: string | null;
+};
+
+
 type RFStatus = {
   tx: boolean;
+
+  runtime_active: boolean;
+  rf_tx_active: boolean;
+  tx_stream_active: boolean;
+
   protocol: Protocol | null;
   device_id?: string | null;
+
   config: unknown;
+
+  mmdvm?: MMDVMStatus | null;
+
   error?: string | null;
 };
 
@@ -99,13 +153,23 @@ const API_BASE_URL =
 
 
 const STORAGE_KEYS = {
-  activeProtocol: "rf-gateway.activeProtocol",
-  selectedDeviceId: "rf-gateway.selectedDeviceId",
+  activeProtocol:
+    "rf-gateway.activeProtocol",
 
-  fmConfig: "rf-gateway.fmConfig",
-  dmrConfig: "rf-gateway.dmrConfig",
-  p25Config: "rf-gateway.p25Config",
-  tetraConfig: "rf-gateway.tetraConfig",
+  selectedDeviceId:
+    "rf-gateway.selectedDeviceId",
+
+  fmConfig:
+    "rf-gateway.fmConfig",
+
+  dmrConfig:
+    "rf-gateway.dmrConfig",
+
+  p25Config:
+    "rf-gateway.p25Config",
+
+  tetraConfig:
+    "rf-gateway.tetraConfig",
 };
 
 
@@ -199,7 +263,9 @@ function loadSelectedDeviceId():
 function frequencyToHz(
   frequency: string
 ): number {
-  const mhz = Number(frequency);
+  const mhz = Number(
+    frequency
+  );
 
   if (
     !Number.isFinite(mhz) ||
@@ -226,8 +292,92 @@ function hzToMHzString(
 }
 
 
+function formatFrequency(
+  frequencyHz:
+    number
+    | null
+    | undefined
+): string {
+  if (
+    frequencyHz === null ||
+    frequencyHz === undefined
+  ) {
+    return "--";
+  }
+
+  return (
+    frequencyHz /
+    1_000_000
+  ).toFixed(6) + " MHz";
+}
+
+
+function formatSignedFrequency(
+  frequencyHz:
+    number
+    | null
+    | undefined
+): string {
+  if (
+    frequencyHz === null ||
+    frequencyHz === undefined
+  ) {
+    return "--";
+  }
+
+  const sign =
+    frequencyHz > 0
+      ? "+"
+      : "";
+
+  if (
+    Math.abs(
+      frequencyHz
+    ) >= 1000
+  ) {
+    return (
+      sign +
+      (
+        frequencyHz /
+        1000
+      ).toFixed(3) +
+      " kHz"
+    );
+  }
+
+  return (
+    sign +
+    frequencyHz.toFixed(0) +
+    " Hz"
+  );
+}
+
+
+function formatSampleRate(
+  sampleRate:
+    number
+    | null
+    | undefined
+): string {
+  if (
+    sampleRate === null ||
+    sampleRate === undefined
+  ) {
+    return "--";
+  }
+
+  return (
+    sampleRate /
+    1000
+  ).toFixed(0) + " kS/s";
+}
+
+
 function optionalNumberToString(
-  value: number | null | undefined
+  value:
+    number
+    | null
+    | undefined
 ): string {
   if (
     value === null ||
@@ -236,7 +386,9 @@ function optionalNumberToString(
     return "";
   }
 
-  return String(value);
+  return String(
+    value
+  );
 }
 
 
@@ -244,9 +396,15 @@ function requiredInteger(
   value: string,
   fieldName: string
 ): number {
-  const parsed = Number(value);
+  const parsed = Number(
+    value
+  );
 
-  if (!Number.isInteger(parsed)) {
+  if (
+    !Number.isInteger(
+      parsed
+    )
+  ) {
     throw new Error(
       `${fieldName} must be an integer`
     );
@@ -262,14 +420,21 @@ function optionalNumber(
   const trimmed =
     value.trim();
 
-  if (trimmed === "") {
+  if (
+    trimmed === ""
+  ) {
     return null;
   }
 
-  const parsed =
-    Number(trimmed);
+  const parsed = Number(
+    trimmed
+  );
 
-  if (!Number.isFinite(parsed)) {
+  if (
+    !Number.isFinite(
+      parsed
+    )
+  ) {
     throw new Error(
       `Invalid numeric value: ${value}`
     );
@@ -283,13 +448,16 @@ function getDeviceDisplayName(
   device: RFDevice
 ): string {
   if (
-    device.driver.toLowerCase() === "sx"
+    device.driver
+      .toLowerCase() === "sx"
   ) {
     return "SXceiver";
   }
 
   if (
-    device.label.trim().length > 0
+    device.label
+      .trim()
+      .length > 0
   ) {
     return device.label;
   }
@@ -370,10 +538,26 @@ function App() {
 
 
   const [
-    txActive,
-    setTxActive,
+    runtimeActive,
+    setRuntimeActive,
   ] =
     useState(false);
+
+
+  const [
+    rfTxActive,
+    setRfTxActive,
+  ] =
+    useState(false);
+
+
+  const [
+    mmdvmStatus,
+    setMmdvmStatus,
+  ] =
+    useState<MMDVMStatus | null>(
+      null
+    );
 
 
   const [
@@ -447,11 +631,13 @@ function App() {
 
 
   const selectedDevice =
-    devicesResponse?.devices.find(
-      (device) =>
-        device.id ===
-        selectedDeviceId
-    ) ?? null;
+    devicesResponse
+      ?.devices
+      .find(
+        (device) =>
+          device.id ===
+          selectedDeviceId
+      ) ?? null;
 
 
   const deviceCount =
@@ -461,8 +647,13 @@ function App() {
 
   const loadDevices =
     async () => {
-      setDevicesLoading(true);
-      setDevicesError(null);
+      setDevicesLoading(
+        true
+      );
+
+      setDevicesError(
+        null
+      );
 
       try {
         const response =
@@ -470,7 +661,9 @@ function App() {
             `${API_BASE_URL}/api/devices`
           );
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
             `HTTP ${response.status}`
           );
@@ -483,11 +676,14 @@ function App() {
           data
         );
 
-        if (data.error) {
+        if (
+          data.error
+        ) {
           setDevicesError(
             data.error
           );
         }
+
       } catch (error) {
         if (
           error instanceof Error
@@ -500,8 +696,11 @@ function App() {
             "Unknown device discovery error"
           );
         }
+
       } finally {
-        setDevicesLoading(false);
+        setDevicesLoading(
+          false
+        );
       }
     };
 
@@ -514,7 +713,9 @@ function App() {
             `${API_BASE_URL}/api/config/modes`
           );
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
             `HTTP ${response.status}`
           );
@@ -524,7 +725,9 @@ function App() {
           (await response.json()) as SavedModesResponse;
 
 
-        if (data.modes.fm) {
+        if (
+          data.modes.fm
+        ) {
           const saved =
             data.modes.fm;
 
@@ -535,12 +738,14 @@ function App() {
               ),
 
             channelSpacing:
-              saved.channel_spacing_khz === 25
+              saved.channel_spacing_khz ===
+              25
                 ? "25"
                 : "12.5",
 
             deviation:
-              saved.deviation_khz === 5
+              saved.deviation_khz ===
+              5
                 ? "5"
                 : "2.5",
 
@@ -562,7 +767,9 @@ function App() {
         }
 
 
-        if (data.modes.dmr) {
+        if (
+          data.modes.dmr
+        ) {
           const saved =
             data.modes.dmr;
 
@@ -578,7 +785,8 @@ function App() {
               ),
 
             timeslot:
-              saved.timeslot === 1
+              saved.timeslot ===
+              1
                 ? "1"
                 : "2",
 
@@ -595,7 +803,9 @@ function App() {
         }
 
 
-        if (data.modes.p25) {
+        if (
+          data.modes.p25
+        ) {
           const saved =
             data.modes.p25;
 
@@ -619,14 +829,17 @@ function App() {
               ),
 
             modulation:
-              saved.modulation === "cqpsk"
+              saved.modulation ===
+              "cqpsk"
                 ? "cqpsk"
                 : "c4fm",
           });
         }
 
 
-        if (data.modes.tetra) {
+        if (
+          data.modes.tetra
+        ) {
           const saved =
             data.modes.tetra;
 
@@ -637,7 +850,8 @@ function App() {
               ),
 
             mode:
-              saved.mode === "tmo"
+              saved.mode ===
+              "tmo"
                 ? "tmo"
                 : "dmo",
 
@@ -658,15 +872,84 @@ function App() {
               ),
           });
         }
+
       } catch (error) {
         console.error(
           "Unable to load saved mode configurations:",
           error
         );
+
       } finally {
         setModeConfigsLoaded(
           true
         );
+      }
+    };
+
+
+  const applyRFStatus =
+    (
+      data: RFStatus
+    ) => {
+      setRuntimeActive(
+        Boolean(
+          data.runtime_active
+        )
+      );
+
+      setRfTxActive(
+        Boolean(
+          data.rf_tx_active
+        )
+      );
+
+      setMmdvmStatus(
+        data.mmdvm ?? null
+      );
+
+
+      if (
+        data.protocol
+      ) {
+        setActiveProtocol(
+          data.protocol
+        );
+      }
+
+
+      if (
+        data.device_id
+      ) {
+        setSelectedDeviceId(
+          data.device_id
+        );
+      }
+    };
+
+
+  const loadRFStatus =
+    async () => {
+      try {
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/rf/status`
+          );
+
+        if (
+          !response.ok
+        ) {
+          return;
+        }
+
+        const data =
+          (await response.json()) as RFStatus;
+
+        applyRFStatus(
+          data
+        );
+
+      } catch {
+        // Health state handles backend connectivity.
       }
     };
 
@@ -694,18 +977,22 @@ function App() {
             }
           );
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           const data =
             await response.json();
 
           throw new Error(
-            typeof data.detail === "string"
+            typeof data.detail ===
+              "string"
               ? data.detail
               : JSON.stringify(
                   data.detail
                 )
           );
         }
+
       } catch (error) {
         console.error(
           "Unable to save mode configuration:",
@@ -719,19 +1006,30 @@ function App() {
     fetch(
       `${API_BASE_URL}/api/health`
     )
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(
-            `HTTP ${response.status}`
+      .then(
+        (response) => {
+          if (
+            !response.ok
+          ) {
+            throw new Error(
+              `HTTP ${response.status}`
+            );
+          }
+
+          return response.json();
+        }
+      )
+      .then(
+        (data: Health) => {
+          setHealth(
+            data
+          );
+
+          setBackendError(
+            null
           );
         }
-
-        return response.json();
-      })
-      .then((data: Health) => {
-        setHealth(data);
-        setBackendError(null);
-      })
+      )
       .catch(
         (error: Error) => {
           setBackendError(
@@ -741,42 +1039,25 @@ function App() {
       );
 
 
-    fetch(
-      `${API_BASE_URL}/api/rf/status`
-    )
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(
-            `HTTP ${response.status}`
-          );
-        }
-
-        return response.json();
-      })
-      .then((data: RFStatus) => {
-        setTxActive(
-          data.tx
-        );
-
-        if (data.protocol) {
-          setActiveProtocol(
-            data.protocol
-          );
-        }
-
-        if (data.device_id) {
-          setSelectedDeviceId(
-            data.device_id
-          );
-        }
-      })
-      .catch(() => {
-        // Backend health state handles connectivity.
-      });
-
-
     void loadSavedModeConfigs();
     void loadDevices();
+    void loadRFStatus();
+
+
+    const statusTimer =
+      window.setInterval(
+        () => {
+          void loadRFStatus();
+        },
+        750
+      );
+
+
+    return () => {
+      window.clearInterval(
+        statusTimer
+      );
+    };
   }, []);
 
 
@@ -786,6 +1067,7 @@ function App() {
     ) {
       return;
     }
+
 
     const usableDevices =
       devicesResponse
@@ -810,7 +1092,8 @@ function App() {
 
 
     if (
-      usableDevices.length === 1
+      usableDevices.length ===
+      1
     ) {
       setSelectedDeviceId(
         usableDevices[0].id
@@ -821,7 +1104,8 @@ function App() {
 
 
     if (
-      selectedDeviceId !== null
+      selectedDeviceId !==
+      null
     ) {
       setSelectedDeviceId(
         null
@@ -834,7 +1118,9 @@ function App() {
 
 
   useEffect(() => {
-    if (activeProtocol) {
+    if (
+      activeProtocol
+    ) {
       localStorage.setItem(
         STORAGE_KEYS.activeProtocol,
         activeProtocol
@@ -850,7 +1136,9 @@ function App() {
 
 
   useEffect(() => {
-    if (selectedDeviceId) {
+    if (
+      selectedDeviceId
+    ) {
       localStorage.setItem(
         STORAGE_KEYS.selectedDeviceId,
         selectedDeviceId
@@ -914,7 +1202,9 @@ function App() {
 
 
   useEffect(() => {
-    if (!modeConfigsLoaded) {
+    if (
+      !modeConfigsLoaded
+    ) {
       return;
     }
 
@@ -954,6 +1244,7 @@ function App() {
                 fmConfig.preEmphasis ===
                 "on",
             });
+
           } catch {
             // Do not save incomplete input.
           }
@@ -973,7 +1264,9 @@ function App() {
 
 
   useEffect(() => {
-    if (!modeConfigsLoaded) {
+    if (
+      !modeConfigsLoaded
+    ) {
       return;
     }
 
@@ -1013,6 +1306,7 @@ function App() {
                   "Radio ID"
                 ),
             });
+
           } catch {
             // Do not save incomplete input.
           }
@@ -1032,7 +1326,9 @@ function App() {
 
 
   useEffect(() => {
-    if (!modeConfigsLoaded) {
+    if (
+      !modeConfigsLoaded
+    ) {
       return;
     }
 
@@ -1066,6 +1362,7 @@ function App() {
               modulation:
                 p25Config.modulation,
             });
+
           } catch {
             // Do not save incomplete input.
           }
@@ -1085,7 +1382,9 @@ function App() {
 
 
   useEffect(() => {
-    if (!modeConfigsLoaded) {
+    if (
+      !modeConfigsLoaded
+    ) {
       return;
     }
 
@@ -1122,6 +1421,7 @@ function App() {
                   "GSSI"
                 ),
             });
+
           } catch {
             // Do not save incomplete input.
           }
@@ -1143,12 +1443,19 @@ function App() {
   const toggleProtocol = (
     protocol: Protocol
   ) => {
-    if (txActive) {
+    if (
+      runtimeActive
+    ) {
       return;
     }
 
-    setRuntimeMessage(null);
-    setRuntimeError(null);
+    setRuntimeMessage(
+      null
+    );
+
+    setRuntimeError(
+      null
+    );
 
     setActiveProtocol(
       (current) =>
@@ -1162,7 +1469,9 @@ function App() {
   const selectDevice = (
     device: RFDevice
   ) => {
-    if (txActive) {
+    if (
+      runtimeActive
+    ) {
       return;
     }
 
@@ -1177,20 +1486,29 @@ function App() {
       device.id
     );
 
-    setRuntimeMessage(null);
-    setRuntimeError(null);
+    setRuntimeMessage(
+      null
+    );
+
+    setRuntimeError(
+      null
+    );
   };
 
 
   const buildStartPayload =
     () => {
-      if (!activeProtocol) {
+      if (
+        !activeProtocol
+      ) {
         throw new Error(
           "Select an RF protocol first"
         );
       }
 
-      if (!selectedDevice) {
+      if (
+        !selectedDevice
+      ) {
         throw new Error(
           "Select an RF device first"
         );
@@ -1198,7 +1516,8 @@ function App() {
 
 
       if (
-        activeProtocol === "fm"
+        activeProtocol ===
+        "fm"
       ) {
         return {
           protocol: "fm",
@@ -1239,7 +1558,8 @@ function App() {
 
 
       if (
-        activeProtocol === "dmr"
+        activeProtocol ===
+        "dmr"
       ) {
         return {
           protocol: "dmr",
@@ -1280,7 +1600,8 @@ function App() {
 
 
       if (
-        activeProtocol === "p25"
+        activeProtocol ===
+        "p25"
       ) {
         return {
           protocol: "p25",
@@ -1352,11 +1673,18 @@ function App() {
   const handleStart =
     async () => {
       try {
-        setRuntimeMessage(null);
-        setRuntimeError(null);
+        setRuntimeMessage(
+          null
+        );
+
+        setRuntimeError(
+          null
+        );
 
 
-        if (!selectedDevice) {
+        if (
+          !selectedDevice
+        ) {
           throw new Error(
             "Select an RF device first"
           );
@@ -1390,7 +1718,9 @@ function App() {
           await response.json();
 
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
             typeof data.detail ===
               "string"
@@ -1402,28 +1732,24 @@ function App() {
         }
 
 
-        if (data.error) {
+        if (
+          data.error
+        ) {
           throw new Error(
             data.error
           );
         }
 
 
-        setTxActive(
-          data.tx
+        applyRFStatus(
+          data as RFStatus
         );
-
-
-        if (data.device_id) {
-          setSelectedDeviceId(
-            data.device_id
-          );
-        }
 
 
         setRuntimeMessage(
           `${activeProtocol?.toUpperCase()} runtime started on ${getDeviceDisplayName(selectedDevice)}`
         );
+
       } catch (error) {
         if (
           error instanceof Error
@@ -1443,8 +1769,13 @@ function App() {
   const handleStop =
     async () => {
       try {
-        setRuntimeMessage(null);
-        setRuntimeError(null);
+        setRuntimeMessage(
+          null
+        );
+
+        setRuntimeError(
+          null
+        );
 
 
         const response =
@@ -1460,28 +1791,33 @@ function App() {
           await response.json();
 
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
             `HTTP ${response.status}`
           );
         }
 
 
-        if (data.error) {
+        if (
+          data.error
+        ) {
           throw new Error(
             data.error
           );
         }
 
 
-        setTxActive(
-          data.tx
+        applyRFStatus(
+          data as RFStatus
         );
 
 
         setRuntimeMessage(
           "RF runtime stopped"
         );
+
       } catch (error) {
         if (
           error instanceof Error
@@ -1496,6 +1832,18 @@ function App() {
         }
       }
     };
+
+
+  const runtimeLabel =
+    activeProtocol
+      ? (
+          rfTxActive
+            ? `${activeProtocol.toUpperCase()} · TX`
+            : runtimeActive
+              ? `${activeProtocol.toUpperCase()} · ACTIVE`
+              : activeProtocol.toUpperCase()
+        )
+      : "DISABLED";
 
 
   return (
@@ -1515,7 +1863,8 @@ function App() {
         <div className="backend-status">
           <span
             className={
-              health?.status === "ok"
+              health?.status ===
+              "ok"
                 ? "status-dot online"
                 : "status-dot offline"
             }
@@ -1532,8 +1881,13 @@ function App() {
 
       <main className="dashboard">
         <section className="card">
-          <h2>Sources</h2>
-          <strong>0</strong>
+          <h2>
+            Sources
+          </h2>
+
+          <strong>
+            0
+          </strong>
 
           <p>
             Internet audio streams
@@ -1542,7 +1896,9 @@ function App() {
 
 
         <section className="card">
-          <h2>RF Devices</h2>
+          <h2>
+            RF Devices
+          </h2>
 
           <strong>
             {devicesLoading
@@ -1557,10 +1913,12 @@ function App() {
 
 
         <section className="card">
-          <h2>Routes</h2>
+          <h2>
+            Routes
+          </h2>
 
           <strong>
-            {txActive
+            {runtimeActive
               ? 1
               : 0}
           </strong>
@@ -1572,8 +1930,13 @@ function App() {
 
 
         <section className="card">
-          <h2>Calibration</h2>
-          <strong>--</strong>
+          <h2>
+            Calibration
+          </h2>
+
+          <strong>
+            --
+          </strong>
 
           <p>
             BER / frequency offset
@@ -1598,7 +1961,7 @@ function App() {
               type="button"
               disabled={
                 devicesLoading ||
-                txActive
+                runtimeActive
               }
               onClick={
                 () => {
@@ -1630,27 +1993,31 @@ function App() {
 
 
           {devicesResponse &&
-            devicesResponse.devices.length > 0 && (
+            devicesResponse
+              .devices
+              .length > 0 && (
               <div className="rf-device-grid">
-                {devicesResponse.devices.map(
-                  (device) => (
-                    <RFDeviceCard
-                      key={device.id}
-                      device={device}
+                {devicesResponse
+                  .devices
+                  .map(
+                    (device) => (
+                      <RFDeviceCard
+                        key={device.id}
+                        device={device}
 
-                      selected={
-                        device.id ===
-                        selectedDeviceId
-                      }
+                        selected={
+                          device.id ===
+                          selectedDeviceId
+                        }
 
-                      onSelect={
-                        txActive
-                          ? undefined
-                          : selectDevice
-                      }
-                    />
-                  )
-                )}
+                        onSelect={
+                          runtimeActive
+                            ? undefined
+                            : selectDevice
+                        }
+                      />
+                    )
+                  )}
               </div>
             )}
         </section>
@@ -1668,20 +2035,15 @@ function App() {
               </p>
             </div>
 
+
             <span
               className={
-                txActive
+                runtimeActive
                   ? "runtime-badge tx-on"
                   : "runtime-badge"
               }
             >
-              {activeProtocol
-                ? `${activeProtocol.toUpperCase()}${
-                    txActive
-                      ? " · TX"
-                      : ""
-                  }`
-                : "DISABLED"}
+              {runtimeLabel}
             </span>
           </div>
 
@@ -1692,7 +2054,7 @@ function App() {
             }
 
             disabled={
-              txActive
+              runtimeActive
             }
 
             onToggle={
@@ -1701,7 +2063,8 @@ function App() {
           />
 
 
-          {activeProtocol === null && (
+          {activeProtocol ===
+            null && (
             <div className="protocol-disabled">
               RF output is disabled.
               <br />
@@ -1711,34 +2074,46 @@ function App() {
           )}
 
 
-          {activeProtocol === "fm" && (
+          {activeProtocol ===
+            "fm" && (
             <FMConfigForm
               value={fmConfig}
-              onChange={setFmConfig}
+              onChange={
+                setFmConfig
+              }
             />
           )}
 
 
-          {activeProtocol === "dmr" && (
+          {activeProtocol ===
+            "dmr" && (
             <DMRConfigForm
               value={dmrConfig}
-              onChange={setDmrConfig}
+              onChange={
+                setDmrConfig
+              }
             />
           )}
 
 
-          {activeProtocol === "p25" && (
+          {activeProtocol ===
+            "p25" && (
             <P25ConfigForm
               value={p25Config}
-              onChange={setP25Config}
+              onChange={
+                setP25Config
+              }
             />
           )}
 
 
-          {activeProtocol === "tetra" && (
+          {activeProtocol ===
+            "tetra" && (
             <TETRAConfigForm
               value={tetraConfig}
-              onChange={setTetraConfig}
+              onChange={
+                setTetraConfig
+              }
             />
           )}
 
@@ -1778,7 +2153,7 @@ function App() {
               disabled={
                 !activeProtocol ||
                 !selectedDevice ||
-                txActive
+                runtimeActive
               }
 
               onClick={
@@ -1791,7 +2166,7 @@ function App() {
 
             <button
               disabled={
-                !txActive
+                !runtimeActive
               }
 
               onClick={
@@ -1806,7 +2181,7 @@ function App() {
               disabled={
                 !activeProtocol ||
                 !selectedDevice ||
-                txActive
+                runtimeActive
               }
             >
               CALIBRATE
@@ -1822,18 +2197,53 @@ function App() {
 
 
           <div>
-            <span>TX</span>
+            <span>
+              Runtime
+            </span>
 
             <strong
               className={
-                txActive
+                runtimeActive
                   ? "tx-value"
                   : ""
               }
             >
-              {txActive
+              {runtimeActive
+                ? "ACTIVE"
+                : "STOPPED"}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              RF TX
+            </span>
+
+            <strong
+              className={
+                rfTxActive
+                  ? "tx-value"
+                  : ""
+              }
+            >
+              {rfTxActive
                 ? "ON"
                 : "OFF"}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              Modem Mode
+            </span>
+
+            <strong>
+              {mmdvmStatus
+                ?.modem_mode
+                ?.toUpperCase()
+                ?? "--"}
             </strong>
           </div>
 
@@ -1845,7 +2255,8 @@ function App() {
 
             <strong>
               {activeProtocol
-                ? activeProtocol.toUpperCase()
+                ? activeProtocol
+                    .toUpperCase()
                 : "--"}
             </strong>
           </div>
@@ -1867,8 +2278,125 @@ function App() {
 
 
           <div>
-            <span>BER</span>
-            <strong>-- %</strong>
+            <span>
+              Channel
+            </span>
+
+            <strong>
+              {formatFrequency(
+                mmdvmStatus
+                  ?.channel_frequency_hz
+              )}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              SDR Center
+            </span>
+
+            <strong>
+              {formatFrequency(
+                mmdvmStatus
+                  ?.sdr_tx_center_frequency_hz
+              )}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              Digital IF
+            </span>
+
+            <strong>
+              {formatSignedFrequency(
+                mmdvmStatus
+                  ?.digital_if_hz
+              )}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              Sample Rate
+            </span>
+
+            <strong>
+              {formatSampleRate(
+                mmdvmStatus
+                  ?.sample_rate_hz
+              )}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              IQ Streams
+            </span>
+
+            <strong>
+              {mmdvmStatus
+                ?.iq_streams_active
+                ? "ACTIVE"
+                : "OFF"}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              MMDVM-IQ
+            </span>
+
+            <strong>
+              {mmdvmStatus
+                ?.mmdvm_iq
+                ?.running
+                ? (
+                    mmdvmStatus
+                      .mmdvm_iq
+                      .ready
+                      ? "READY"
+                      : "STARTING"
+                  )
+                : "STOPPED"}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              MMDVM-Host
+            </span>
+
+            <strong>
+              {mmdvmStatus
+                ?.mmdvm_host
+                ?.running
+                ? (
+                    mmdvmStatus
+                      .mmdvm_host
+                      .ready
+                      ? "READY"
+                      : "STARTING"
+                  )
+                : "STOPPED"}
+            </strong>
+          </div>
+
+
+          <div>
+            <span>
+              BER
+            </span>
+
+            <strong>
+              -- %
+            </strong>
           </div>
 
 

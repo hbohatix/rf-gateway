@@ -9,13 +9,18 @@ from app.config_store import (
     mode_config_store,
 )
 
+from app.mmdvm import (
+    mmdvm_process_manager,
+    validate_runtime_mode,
+)
+
 from app.rf import (
     discover_soapy_devices,
     rf_device_manager,
 )
 
 
-API_VERSION = "0.7.0"
+API_VERSION = "0.9.0"
 
 
 ModeProtocol = Literal[
@@ -32,6 +37,7 @@ async def lifespan(
 ):
     yield
 
+    mmdvm_process_manager.stop()
     rf_device_manager.close_all()
 
 
@@ -136,7 +142,7 @@ class DMRModeSettings(BaseModel):
     )
 
     radio_id: int = Field(
-        ge=0,
+        gt=0,
     )
 
 
@@ -156,7 +162,7 @@ class P25ModeSettings(BaseModel):
     )
 
     radio_id: int = Field(
-        ge=0,
+        gt=0,
     )
 
     modulation: Literal[
@@ -245,10 +251,27 @@ RFStartRequest = Annotated[
 
 
 runtime_state = {
+    #
+    # tx now means actual MMDVM-IQ
+    # RF transmission state.
+    #
     "tx": False,
+
+    "runtime_active": False,
+    "rf_tx_active": False,
+
+    #
+    # Compatibility alias.
+    #
+    "tx_stream_active": False,
+
     "protocol": None,
     "device_id": None,
+
     "config": None,
+
+    "mmdvm": None,
+    "error": None,
 }
 
 
@@ -280,6 +303,59 @@ def device_exists(
             )
 
     return False
+
+
+def ensure_direct_soapy_available():
+    if (
+        mmdvm_process_manager
+        .is_running
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "SXceiver is owned by "
+                "the MMDVM runtime"
+            ),
+        )
+
+
+def apply_mmdvm_status(
+    status: dict,
+) -> None:
+    runtime_active = bool(
+        status.get(
+            "runtime_active",
+            False,
+        )
+    )
+
+    rf_tx_active = bool(
+        status.get(
+            "rf_tx_active",
+            False,
+        )
+    )
+
+
+    runtime_state[
+        "runtime_active"
+    ] = runtime_active
+
+    runtime_state[
+        "rf_tx_active"
+    ] = rf_tx_active
+
+    runtime_state[
+        "tx_stream_active"
+    ] = rf_tx_active
+
+    runtime_state[
+        "tx"
+    ] = rf_tx_active
+
+    runtime_state[
+        "mmdvm"
+    ] = status
 
 
 @app.get("/")
@@ -375,6 +451,8 @@ def refresh_devices():
 def open_device(
     device_id: str,
 ):
+    ensure_direct_soapy_available()
+
     try:
         return rf_device_manager.open(
             device_id
@@ -415,6 +493,8 @@ def configure_device(
     device_id: str,
     request: DeviceConfigureRequest,
 ):
+    ensure_direct_soapy_available()
+
     try:
         device = (
             rf_device_manager.get(
@@ -564,8 +644,35 @@ def close_device(
         ) from error
 
 
+@app.get("/api/mmdvm/status")
+def mmdvm_status():
+    return (
+        mmdvm_process_manager
+        .status()
+    )
+
+
+@app.get("/api/mmdvm/logs")
+def mmdvm_logs(
+    lines: int = 80,
+):
+    return (
+        mmdvm_process_manager
+        .logs(lines)
+    )
+
+
 @app.get("/api/rf/status")
 async def rf_status():
+    status = (
+        mmdvm_process_manager
+        .status()
+    )
+
+    apply_mmdvm_status(
+        status
+    )
+
     return runtime_state
 
 
@@ -573,6 +680,18 @@ async def rf_status():
 async def rf_start(
     request: RFStartRequest,
 ):
+    if (
+        mmdvm_process_manager
+        .is_running
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "RF runtime is already active"
+            ),
+        )
+
+
     if not device_exists(
         request.device_id
     ):
@@ -591,50 +710,85 @@ async def rf_start(
     )
 
 
+    try:
+        validate_runtime_mode(
+            request.protocol,
+            request_data,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+
     mode_config_store.save_mode(
         request.protocol,
         request_data,
     )
 
 
-    runtime_state["tx"] = True
+    try:
+        rf_device_manager.close(
+            request.device_id
+        )
 
-    runtime_state["protocol"] = (
-        request.protocol
+    except Exception:
+        pass
+
+
+    runtime_state[
+        "protocol"
+    ] = request.protocol
+
+    runtime_state[
+        "device_id"
+    ] = request.device_id
+
+    runtime_state[
+        "config"
+    ] = request_data
+
+
+    try:
+        status = (
+            mmdvm_process_manager
+            .start(
+                request.protocol,
+                request_data,
+                callsign="SP5OPS",
+            )
+        )
+
+    except Exception as error:
+        failed_status = (
+            mmdvm_process_manager
+            .status()
+        )
+
+        apply_mmdvm_status(
+            failed_status
+        )
+
+        runtime_state[
+            "error"
+        ] = str(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        ) from error
+
+
+    apply_mmdvm_status(
+        status
     )
 
-    runtime_state["device_id"] = (
-        request.device_id
-    )
 
-    runtime_state["config"] = (
-        request_data
-    )
-
-
-    print()
-    print("=== RF START ===")
-
-    print(
-        f"Device: "
-        f"{request.device_id}"
-    )
-
-    print(
-        f"Protocol: "
-        f"{request.protocol}"
-    )
-
-    print(
-        request_data
-    )
-
-    print(
-        "Mode configuration saved."
-    )
-
-    print("================")
-    print()
+    runtime_state[
+        "error"
+    ] = None
 
 
     return runtime_state
@@ -642,24 +796,18 @@ async def rf_start(
 
 @app.post("/api/rf/stop")
 async def rf_stop():
-    runtime_state["tx"] = False
-
-
-    print()
-    print("=== RF STOP ===")
-
-    print(
-        f"Device: "
-        f"{runtime_state['device_id']}"
+    status = (
+        mmdvm_process_manager
+        .stop()
     )
 
-    print(
-        f"Protocol: "
-        f"{runtime_state['protocol']}"
+    apply_mmdvm_status(
+        status
     )
 
-    print("================")
-    print()
+    runtime_state[
+        "error"
+    ] = None
 
 
     return runtime_state
