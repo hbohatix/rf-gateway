@@ -14,13 +14,17 @@ from app.mmdvm import (
     validate_runtime_mode,
 )
 
+from app.mmdvm.control import (
+    send_cw_command,
+)
+
 from app.rf import (
     discover_soapy_devices,
     rf_device_manager,
 )
 
 
-API_VERSION = "0.9.0"
+API_VERSION = "0.10.0"
 
 
 ModeProtocol = Literal[
@@ -250,19 +254,20 @@ RFStartRequest = Annotated[
 ]
 
 
+class CWTestRequest(BaseModel):
+    text: str = Field(
+        default="SP5OPS",
+        min_length=1,
+        max_length=32,
+    )
+
+
 runtime_state = {
-    #
-    # tx now means actual MMDVM-IQ
-    # RF transmission state.
-    #
     "tx": False,
 
     "runtime_active": False,
     "rf_tx_active": False,
 
-    #
-    # Compatibility alias.
-    #
     "tx_stream_active": False,
 
     "protocol": None,
@@ -335,7 +340,6 @@ def apply_mmdvm_status(
             False,
         )
     )
-
 
     runtime_state[
         "runtime_active"
@@ -504,7 +508,6 @@ def configure_device(
 
         applied = {}
 
-
         if (
             request.rx_frequency_hz
             is not None
@@ -516,7 +519,6 @@ def configure_device(
                     request.rx_frequency_hz
                 )
             )
-
 
         if (
             request.tx_frequency_hz
@@ -530,7 +532,6 @@ def configure_device(
                 )
             )
 
-
         if (
             request.rx_sample_rate
             is not None
@@ -542,7 +543,6 @@ def configure_device(
                     request.rx_sample_rate
                 )
             )
-
 
         if (
             request.tx_sample_rate
@@ -556,7 +556,6 @@ def configure_device(
                 )
             )
 
-
         if (
             request.rx_bandwidth_hz
             is not None
@@ -568,7 +567,6 @@ def configure_device(
                     request.rx_bandwidth_hz
                 )
             )
-
 
         if (
             request.tx_bandwidth_hz
@@ -582,7 +580,6 @@ def configure_device(
                 )
             )
 
-
         if (
             request.rx_gain_db
             is not None
@@ -595,7 +592,6 @@ def configure_device(
                 )
             )
 
-
         if (
             request.tx_gain_db
             is not None
@@ -607,7 +603,6 @@ def configure_device(
                     request.tx_gain_db
                 )
             )
-
 
         return {
             "device_id": device_id,
@@ -662,6 +657,86 @@ def mmdvm_logs(
     )
 
 
+@app.post(
+    "/api/calibration/cw-id"
+)
+def calibration_cw_id(
+    request: CWTestRequest,
+):
+    status = (
+        mmdvm_process_manager
+        .status()
+    )
+
+    if not status.get(
+        "runtime_active",
+        False,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "MMDVM runtime must be "
+                "active before CW test"
+            ),
+        )
+
+    if not status.get(
+        "runtime_ready",
+        False,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "MMDVM runtime is not ready"
+            ),
+        )
+
+    if status.get(
+        "rf_tx_active",
+        False,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "RF transmitter is already active"
+            ),
+        )
+
+    try:
+        result = send_cw_command(
+            request.text
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        ) from error
+
+    return {
+        **result,
+
+        "runtime_active":
+            True,
+
+        "protocol":
+            status.get(
+                "protocol"
+            ),
+
+        "frequency_hz":
+            status.get(
+                "channel_frequency_hz"
+            ),
+    }
+
+
 @app.get("/api/rf/status")
 async def rf_status():
     status = (
@@ -691,7 +766,6 @@ async def rf_start(
             ),
         )
 
-
     if not device_exists(
         request.device_id
     ):
@@ -704,11 +778,9 @@ async def rf_start(
             ),
         )
 
-
     request_data = (
         request.model_dump()
     )
-
 
     try:
         validate_runtime_mode(
@@ -722,12 +794,10 @@ async def rf_start(
             detail=str(error),
         ) from error
 
-
     mode_config_store.save_mode(
         request.protocol,
         request_data,
     )
-
 
     try:
         rf_device_manager.close(
@@ -736,7 +806,6 @@ async def rf_start(
 
     except Exception:
         pass
-
 
     runtime_state[
         "protocol"
@@ -749,7 +818,6 @@ async def rf_start(
     runtime_state[
         "config"
     ] = request_data
-
 
     try:
         status = (
@@ -780,16 +848,13 @@ async def rf_start(
             detail=str(error),
         ) from error
 
-
     apply_mmdvm_status(
         status
     )
 
-
     runtime_state[
         "error"
     ] = None
-
 
     return runtime_state
 
@@ -806,8 +871,19 @@ async def rf_stop():
     )
 
     runtime_state[
-        "error"
+        "protocol"
     ] = None
 
+    runtime_state[
+        "device_id"
+    ] = None
+
+    runtime_state[
+        "config"
+    ] = None
+
+    runtime_state[
+        "error"
+    ] = None
 
     return runtime_state
