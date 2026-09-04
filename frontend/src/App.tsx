@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 
 import "./App.css";
 
+import CalibrationPanel from "./components/CalibrationPanel";
 import ProtocolSelector from "./components/ProtocolSelector";
 import RFDeviceCard from "./components/RFDeviceCard";
 
@@ -34,7 +38,11 @@ type Health = {
 type MMDVMProcessStatus = {
   running: boolean;
   ready: boolean;
-  pid: number | null;
+
+  pid:
+    number
+    | null;
+
   udp_port: number;
 };
 
@@ -43,21 +51,45 @@ type MMDVMStatus = {
   runtime_active: boolean;
   runtime_ready: boolean;
 
-  protocol: Protocol | null;
+  protocol:
+    Protocol
+    | null;
 
-  frequency_hz: number | null;
-  channel_frequency_hz: number | null;
+  frequency_hz:
+    number
+    | null;
 
-  sdr_tx_center_frequency_hz: number | null;
-  sdr_rx_center_frequency_hz: number | null;
+  channel_frequency_hz:
+    number
+    | null;
 
-  digital_if_hz: number | null;
+  sdr_tx_center_frequency_hz:
+    number
+    | null;
 
-  sample_rate_hz: number | null;
-  actual_tx_rate_hz: number | null;
-  actual_rx_rate_hz: number | null;
+  sdr_rx_center_frequency_hz:
+    number
+    | null;
 
-  modem_mode: string | null;
+  digital_if_hz:
+    number
+    | null;
+
+  sample_rate_hz:
+    number
+    | null;
+
+  actual_tx_rate_hz:
+    number
+    | null;
+
+  actual_rx_rate_hz:
+    number
+    | null;
+
+  modem_mode:
+    string
+    | null;
 
   rf_tx_active: boolean;
   tx_stream_active: boolean;
@@ -65,14 +97,25 @@ type MMDVMStatus = {
   hardware_open: boolean;
   iq_streams_active: boolean;
 
-  hardware_version: string | null;
-  driver_name: string | null;
+  hardware_version:
+    string
+    | null;
 
-  mmdvm_iq: MMDVMProcessStatus;
-  mmdvm_host: MMDVMProcessStatus;
+  driver_name:
+    string
+    | null;
+
+  mmdvm_iq:
+    MMDVMProcessStatus;
+
+  mmdvm_host:
+    MMDVMProcessStatus;
 
   runtime_config: string;
-  last_error: string | null;
+
+  last_error:
+    string
+    | null;
 };
 
 
@@ -83,14 +126,23 @@ type RFStatus = {
   rf_tx_active: boolean;
   tx_stream_active: boolean;
 
-  protocol: Protocol | null;
-  device_id?: string | null;
+  protocol:
+    Protocol
+    | null;
+
+  device_id?:
+    string
+    | null;
 
   config: unknown;
 
-  mmdvm?: MMDVMStatus | null;
+  mmdvm?:
+    MMDVMStatus
+    | null;
 
-  error?: string | null;
+  error?:
+    string
+    | null;
 };
 
 
@@ -98,9 +150,17 @@ type SavedFMConfig = {
   frequency_hz: number;
   channel_spacing_khz: number;
   deviation_khz: number;
-  tx_ctcss_hz: number | null;
-  rx_ctcss_hz: number | null;
+
+  tx_ctcss_hz:
+    number
+    | null;
+
+  rx_ctcss_hz:
+    number
+    | null;
+
   pre_emphasis: boolean;
+
   updated_at?: string;
 };
 
@@ -111,6 +171,7 @@ type SavedDMRConfig = {
   timeslot: number;
   talkgroup: number;
   radio_id: number;
+
   updated_at?: string;
 };
 
@@ -121,6 +182,7 @@ type SavedP25Config = {
   talkgroup: number;
   radio_id: number;
   modulation: string;
+
   updated_at?: string;
 };
 
@@ -132,6 +194,7 @@ type SavedTETRAConfig = {
   mnc: string;
   color_code: number;
   gssi: number;
+
   updated_at?: string;
 };
 
@@ -140,10 +203,17 @@ type SavedModesResponse = {
   version: number;
 
   modes: {
-    fm?: SavedFMConfig;
-    dmr?: SavedDMRConfig;
-    p25?: SavedP25Config;
-    tetra?: SavedTETRAConfig;
+    fm?:
+      SavedFMConfig;
+
+    dmr?:
+      SavedDMRConfig;
+
+    p25?:
+      SavedP25Config;
+
+    tetra?:
+      SavedTETRAConfig;
   };
 };
 
@@ -173,42 +243,86 @@ const STORAGE_KEYS = {
 };
 
 
-const DEFAULT_FM_CONFIG: FMConfig = {
-  frequency: "145.500000",
-  channelSpacing: "12.5",
-  deviation: "2.5",
-  txCtcss: "",
-  rxCtcss: "",
-  preEmphasis: "on",
-};
+const DEFAULT_FM_CONFIG:
+  FMConfig = {
+    frequency:
+      "145.500000",
+
+    channelSpacing:
+      "12.5",
+
+    deviation:
+      "2.5",
+
+    txCtcss:
+      "",
+
+    rxCtcss:
+      "",
+
+    preEmphasis:
+      "on",
+  };
 
 
-const DEFAULT_DMR_CONFIG: DMRConfig = {
-  frequency: "438.800000",
-  colorCode: "1",
-  timeslot: "2",
-  talkgroup: "260",
-  radioId: "2601292",
-};
+const DEFAULT_DMR_CONFIG:
+  DMRConfig = {
+    frequency:
+      "438.800000",
+
+    colorCode:
+      "1",
+
+    timeslot:
+      "2",
+
+    talkgroup:
+      "260",
+
+    radioId:
+      "2601292",
+  };
 
 
-const DEFAULT_P25_CONFIG: P25Config = {
-  frequency: "145.500000",
-  nac: "293",
-  talkgroup: "260",
-  radioId: "2601292",
-  modulation: "c4fm",
-};
+const DEFAULT_P25_CONFIG:
+  P25Config = {
+    frequency:
+      "145.500000",
+
+    nac:
+      "293",
+
+    talkgroup:
+      "260",
+
+    radioId:
+      "2601292",
+
+    modulation:
+      "c4fm",
+  };
 
 
-const DEFAULT_TETRA_CONFIG: TETRAConfig = {
-  frequency: "430.000000",
-  mode: "dmo",
-  mcc: "901",
-  mnc: "9999",
-  colorCode: "1",
-  gssi: "1",
-};
+const DEFAULT_TETRA_CONFIG:
+  TETRAConfig = {
+    frequency:
+      "430.000000",
+
+    mode:
+      "dmo",
+
+    mcc:
+      "901",
+
+    mnc:
+      "9999",
+
+    colorCode:
+      "1",
+
+    gssi:
+      "1",
+  };
 
 
 function loadFromStorage<T>(
@@ -217,15 +331,20 @@ function loadFromStorage<T>(
 ): T {
   try {
     const storedValue =
-      localStorage.getItem(key);
+      localStorage.getItem(
+        key
+      );
 
-    if (!storedValue) {
+    if (
+      !storedValue
+    ) {
       return defaultValue;
     }
 
     return JSON.parse(
       storedValue
     ) as T;
+
   } catch {
     return defaultValue;
   }
@@ -233,10 +352,12 @@ function loadFromStorage<T>(
 
 
 function loadProtocolFromStorage():
-  Protocol | null {
+  Protocol
+  | null {
   const storedValue =
     localStorage.getItem(
-      STORAGE_KEYS.activeProtocol
+      STORAGE_KEYS
+        .activeProtocol
     );
 
   if (
@@ -253,9 +374,13 @@ function loadProtocolFromStorage():
 
 
 function loadSelectedDeviceId():
-  string | null {
-  return localStorage.getItem(
-    STORAGE_KEYS.selectedDeviceId
+  string
+  | null {
+  return (
+    localStorage.getItem(
+      STORAGE_KEYS
+        .selectedDeviceId
+    )
   );
 }
 
@@ -263,12 +388,15 @@ function loadSelectedDeviceId():
 function frequencyToHz(
   frequency: string
 ): number {
-  const mhz = Number(
-    frequency
-  );
+  const mhz =
+    Number(
+      frequency
+    );
 
   if (
-    !Number.isFinite(mhz) ||
+    !Number.isFinite(
+      mhz
+    ) ||
     mhz <= 0
   ) {
     throw new Error(
@@ -277,7 +405,8 @@ function frequencyToHz(
   }
 
   return Math.round(
-    mhz * 1_000_000
+    mhz *
+    1_000_000
   );
 }
 
@@ -288,7 +417,9 @@ function hzToMHzString(
   return (
     frequencyHz /
     1_000_000
-  ).toFixed(6);
+  ).toFixed(
+    6
+  );
 }
 
 
@@ -299,8 +430,10 @@ function formatFrequency(
     | undefined
 ): string {
   if (
-    frequencyHz === null ||
-    frequencyHz === undefined
+    frequencyHz ===
+      null ||
+    frequencyHz ===
+      undefined
   ) {
     return "--";
   }
@@ -308,7 +441,9 @@ function formatFrequency(
   return (
     frequencyHz /
     1_000_000
-  ).toFixed(6) + " MHz";
+  ).toFixed(
+    6
+  ) + " MHz";
 }
 
 
@@ -319,8 +454,10 @@ function formatSignedFrequency(
     | undefined
 ): string {
   if (
-    frequencyHz === null ||
-    frequencyHz === undefined
+    frequencyHz ===
+      null ||
+    frequencyHz ===
+      undefined
   ) {
     return "--";
   }
@@ -333,21 +470,27 @@ function formatSignedFrequency(
   if (
     Math.abs(
       frequencyHz
-    ) >= 1000
+    ) >=
+    1000
   ) {
     return (
       sign +
       (
         frequencyHz /
         1000
-      ).toFixed(3) +
+      ).toFixed(
+        3
+      ) +
       " kHz"
     );
   }
 
   return (
     sign +
-    frequencyHz.toFixed(0) +
+    frequencyHz
+      .toFixed(
+        0
+      ) +
     " Hz"
   );
 }
@@ -360,8 +503,10 @@ function formatSampleRate(
     | undefined
 ): string {
   if (
-    sampleRate === null ||
-    sampleRate === undefined
+    sampleRate ===
+      null ||
+    sampleRate ===
+      undefined
   ) {
     return "--";
   }
@@ -369,7 +514,9 @@ function formatSampleRate(
   return (
     sampleRate /
     1000
-  ).toFixed(0) + " kS/s";
+  ).toFixed(
+    0
+  ) + " kS/s";
 }
 
 
@@ -396,9 +543,10 @@ function requiredInteger(
   value: string,
   fieldName: string
 ): number {
-  const parsed = Number(
-    value
-  );
+  const parsed =
+    Number(
+      value
+    );
 
   if (
     !Number.isInteger(
@@ -416,7 +564,9 @@ function requiredInteger(
 
 function optionalNumber(
   value: string
-): number | null {
+):
+  number
+  | null {
   const trimmed =
     value.trim();
 
@@ -426,9 +576,10 @@ function optionalNumber(
     return null;
   }
 
-  const parsed = Number(
-    trimmed
-  );
+  const parsed =
+    Number(
+      trimmed
+    );
 
   if (
     !Number.isFinite(
@@ -449,7 +600,8 @@ function getDeviceDisplayName(
 ): string {
   if (
     device.driver
-      .toLowerCase() === "sx"
+      .toLowerCase() ===
+    "sx"
   ) {
     return "SXceiver";
   }
@@ -457,7 +609,8 @@ function getDeviceDisplayName(
   if (
     device.label
       .trim()
-      .length > 0
+      .length >
+    0
   ) {
     return device.label;
   }
@@ -471,7 +624,10 @@ function App() {
     health,
     setHealth,
   ] =
-    useState<Health | null>(
+    useState<
+      Health
+      | null
+    >(
       null
     );
 
@@ -480,7 +636,10 @@ function App() {
     backendError,
     setBackendError,
   ] =
-    useState<string | null>(
+    useState<
+      string
+      | null
+    >(
       null
     );
 
@@ -489,7 +648,10 @@ function App() {
     activeProtocol,
     setActiveProtocol,
   ] =
-    useState<Protocol | null>(
+    useState<
+      Protocol
+      | null
+    >(
       () =>
         loadProtocolFromStorage()
     );
@@ -499,7 +661,10 @@ function App() {
     selectedDeviceId,
     setSelectedDeviceId,
   ] =
-    useState<string | null>(
+    useState<
+      string
+      | null
+    >(
       () =>
         loadSelectedDeviceId()
     );
@@ -509,7 +674,10 @@ function App() {
     devicesResponse,
     setDevicesResponse,
   ] =
-    useState<RFDevicesResponse | null>(
+    useState<
+      RFDevicesResponse
+      | null
+    >(
       null
     );
 
@@ -518,14 +686,19 @@ function App() {
     devicesLoading,
     setDevicesLoading,
   ] =
-    useState(false);
+    useState(
+      false
+    );
 
 
   const [
     devicesError,
     setDevicesError,
   ] =
-    useState<string | null>(
+    useState<
+      string
+      | null
+    >(
       null
     );
 
@@ -534,28 +707,37 @@ function App() {
     modeConfigsLoaded,
     setModeConfigsLoaded,
   ] =
-    useState(false);
+    useState(
+      false
+    );
 
 
   const [
     runtimeActive,
     setRuntimeActive,
   ] =
-    useState(false);
+    useState(
+      false
+    );
 
 
   const [
     rfTxActive,
     setRfTxActive,
   ] =
-    useState(false);
+    useState(
+      false
+    );
 
 
   const [
     mmdvmStatus,
     setMmdvmStatus,
   ] =
-    useState<MMDVMStatus | null>(
+    useState<
+      MMDVMStatus
+      | null
+    >(
       null
     );
 
@@ -564,7 +746,10 @@ function App() {
     runtimeMessage,
     setRuntimeMessage,
   ] =
-    useState<string | null>(
+    useState<
+      string
+      | null
+    >(
       null
     );
 
@@ -573,8 +758,20 @@ function App() {
     runtimeError,
     setRuntimeError,
   ] =
-    useState<string | null>(
+    useState<
+      string
+      | null
+    >(
       null
+    );
+
+
+  const [
+    calibrationOpen,
+    setCalibrationOpen,
+  ] =
+    useState(
+      false
     );
 
 
@@ -585,7 +782,9 @@ function App() {
     useState<FMConfig>(
       () =>
         loadFromStorage(
-          STORAGE_KEYS.fmConfig,
+          STORAGE_KEYS
+            .fmConfig,
+
           DEFAULT_FM_CONFIG
         )
     );
@@ -598,7 +797,9 @@ function App() {
     useState<DMRConfig>(
       () =>
         loadFromStorage(
-          STORAGE_KEYS.dmrConfig,
+          STORAGE_KEYS
+            .dmrConfig,
+
           DEFAULT_DMR_CONFIG
         )
     );
@@ -611,7 +812,9 @@ function App() {
     useState<P25Config>(
       () =>
         loadFromStorage(
-          STORAGE_KEYS.p25Config,
+          STORAGE_KEYS
+            .p25Config,
+
           DEFAULT_P25_CONFIG
         )
     );
@@ -624,7 +827,9 @@ function App() {
     useState<TETRAConfig>(
       () =>
         loadFromStorage(
-          STORAGE_KEYS.tetraConfig,
+          STORAGE_KEYS
+            .tetraConfig,
+
           DEFAULT_TETRA_CONFIG
         )
     );
@@ -634,7 +839,9 @@ function App() {
     devicesResponse
       ?.devices
       .find(
-        (device) =>
+        (
+          device
+        ) =>
           device.id ===
           selectedDeviceId
       ) ?? null;
@@ -642,7 +849,8 @@ function App() {
 
   const deviceCount =
     devicesResponse
-      ?.device_count ?? 0;
+      ?.device_count ??
+    0;
 
 
   const loadDevices =
@@ -670,7 +878,10 @@ function App() {
         }
 
         const data =
-          (await response.json()) as RFDevicesResponse;
+          (
+            await response
+              .json()
+          ) as RFDevicesResponse;
 
         setDevicesResponse(
           data
@@ -684,9 +895,12 @@ function App() {
           );
         }
 
-      } catch (error) {
+      } catch (
+        error
+      ) {
         if (
-          error instanceof Error
+          error instanceof
+          Error
         ) {
           setDevicesError(
             error.message
@@ -722,7 +936,10 @@ function App() {
         }
 
         const data =
-          (await response.json()) as SavedModesResponse;
+          (
+            await response
+              .json()
+          ) as SavedModesResponse;
 
 
         if (
@@ -734,33 +951,39 @@ function App() {
           setFmConfig({
             frequency:
               hzToMHzString(
-                saved.frequency_hz
+                saved
+                  .frequency_hz
               ),
 
             channelSpacing:
-              saved.channel_spacing_khz ===
+              saved
+                .channel_spacing_khz ===
               25
                 ? "25"
                 : "12.5",
 
             deviation:
-              saved.deviation_khz ===
+              saved
+                .deviation_khz ===
               5
                 ? "5"
                 : "2.5",
 
             txCtcss:
               optionalNumberToString(
-                saved.tx_ctcss_hz
+                saved
+                  .tx_ctcss_hz
               ),
 
             rxCtcss:
               optionalNumberToString(
-                saved.rx_ctcss_hz
+                saved
+                  .rx_ctcss_hz
               ),
 
             preEmphasis:
-              saved.pre_emphasis
+              saved
+                .pre_emphasis
                 ? "on"
                 : "off",
           });
@@ -776,28 +999,33 @@ function App() {
           setDmrConfig({
             frequency:
               hzToMHzString(
-                saved.frequency_hz
+                saved
+                  .frequency_hz
               ),
 
             colorCode:
               String(
-                saved.color_code
+                saved
+                  .color_code
               ),
 
             timeslot:
-              saved.timeslot ===
+              saved
+                .timeslot ===
               1
                 ? "1"
                 : "2",
 
             talkgroup:
               String(
-                saved.talkgroup
+                saved
+                  .talkgroup
               ),
 
             radioId:
               String(
-                saved.radio_id
+                saved
+                  .radio_id
               ),
           });
         }
@@ -812,7 +1040,8 @@ function App() {
           setP25Config({
             frequency:
               hzToMHzString(
-                saved.frequency_hz
+                saved
+                  .frequency_hz
               ),
 
             nac:
@@ -820,16 +1049,19 @@ function App() {
 
             talkgroup:
               String(
-                saved.talkgroup
+                saved
+                  .talkgroup
               ),
 
             radioId:
               String(
-                saved.radio_id
+                saved
+                  .radio_id
               ),
 
             modulation:
-              saved.modulation ===
+              saved
+                .modulation ===
               "cqpsk"
                 ? "cqpsk"
                 : "c4fm",
@@ -846,7 +1078,8 @@ function App() {
           setTetraConfig({
             frequency:
               hzToMHzString(
-                saved.frequency_hz
+                saved
+                  .frequency_hz
               ),
 
             mode:
@@ -863,17 +1096,21 @@ function App() {
 
             colorCode:
               String(
-                saved.color_code
+                saved
+                  .color_code
               ),
 
             gssi:
               String(
-                saved.gssi
+                saved
+                  .gssi
               ),
           });
         }
 
-      } catch (error) {
+      } catch (
+        error
+      ) {
         console.error(
           "Unable to load saved mode configurations:",
           error
@@ -893,18 +1130,21 @@ function App() {
     ) => {
       setRuntimeActive(
         Boolean(
-          data.runtime_active
+          data
+            .runtime_active
         )
       );
 
       setRfTxActive(
         Boolean(
-          data.rf_tx_active
+          data
+            .rf_tx_active
         )
       );
 
       setMmdvmStatus(
-        data.mmdvm ?? null
+        data.mmdvm ??
+        null
       );
 
 
@@ -932,7 +1172,11 @@ function App() {
       try {
         const response =
           await fetch(
-            `${API_BASE_URL}/api/rf/status`
+            `${API_BASE_URL}/api/rf/status`,
+            {
+              cache:
+                "no-store",
+            }
           );
 
         if (
@@ -942,14 +1186,17 @@ function App() {
         }
 
         const data =
-          (await response.json()) as RFStatus;
+          (
+            await response
+              .json()
+          ) as RFStatus;
 
         applyRFStatus(
           data
         );
 
       } catch {
-        // Health state handles backend connectivity.
+        // Backend health handles connectivity.
       }
     };
 
@@ -963,7 +1210,8 @@ function App() {
           await fetch(
             `${API_BASE_URL}/api/config/modes`,
             {
-              method: "PUT",
+              method:
+                "PUT",
 
               headers: {
                 "Content-Type":
@@ -981,7 +1229,8 @@ function App() {
           !response.ok
         ) {
           const data =
-            await response.json();
+            await response
+              .json();
 
           throw new Error(
             typeof data.detail ===
@@ -993,7 +1242,9 @@ function App() {
           );
         }
 
-      } catch (error) {
+      } catch (
+        error
+      ) {
         console.error(
           "Unable to save mode configuration:",
           error
@@ -1002,498 +1253,616 @@ function App() {
     };
 
 
-  useEffect(() => {
-    fetch(
-      `${API_BASE_URL}/api/health`
-    )
-      .then(
-        (response) => {
-          if (
-            !response.ok
-          ) {
-            throw new Error(
-              `HTTP ${response.status}`
+  useEffect(
+    () => {
+      fetch(
+        `${API_BASE_URL}/api/health`
+      )
+        .then(
+          (
+            response
+          ) => {
+            if (
+              !response.ok
+            ) {
+              throw new Error(
+                `HTTP ${response.status}`
+              );
+            }
+
+            return (
+              response.json()
             );
           }
+        )
+        .then(
+          (
+            data:
+              Health
+          ) => {
+            setHealth(
+              data
+            );
 
-          return response.json();
-        }
-      )
-      .then(
-        (data: Health) => {
-          setHealth(
-            data
-          );
-
-          setBackendError(
-            null
-          );
-        }
-      )
-      .catch(
-        (error: Error) => {
-          setBackendError(
-            error.message
-          );
-        }
-      );
-
-
-    void loadSavedModeConfigs();
-    void loadDevices();
-    void loadRFStatus();
-
-
-    const statusTimer =
-      window.setInterval(
-        () => {
-          void loadRFStatus();
-        },
-        750
-      );
-
-
-    return () => {
-      window.clearInterval(
-        statusTimer
-      );
-    };
-  }, []);
-
-
-  useEffect(() => {
-    if (
-      !devicesResponse
-    ) {
-      return;
-    }
-
-
-    const usableDevices =
-      devicesResponse
-        .devices
-        .filter(
-          (device) =>
-            device.available &&
-            device.probe_ok
+            setBackendError(
+              null
+            );
+          }
+        )
+        .catch(
+          (
+            error:
+              Error
+          ) => {
+            setBackendError(
+              error.message
+            );
+          }
         );
 
 
-    if (
-      selectedDeviceId &&
-      usableDevices.some(
-        (device) =>
-          device.id ===
-          selectedDeviceId
-      )
-    ) {
-      return;
-    }
+      void loadSavedModeConfigs();
+      void loadDevices();
+      void loadRFStatus();
 
 
-    if (
-      usableDevices.length ===
-      1
-    ) {
-      setSelectedDeviceId(
-        usableDevices[0].id
-      );
-
-      return;
-    }
+      const statusTimer =
+        window.setInterval(
+          () => {
+            void loadRFStatus();
+          },
+          750
+        );
 
 
-    if (
-      selectedDeviceId !==
-      null
-    ) {
-      setSelectedDeviceId(
+      return () => {
+        window.clearInterval(
+          statusTimer
+        );
+      };
+    },
+    []
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        !devicesResponse
+      ) {
+        return;
+      }
+
+
+      const usableDevices =
+        devicesResponse
+          .devices
+          .filter(
+            (
+              device
+            ) =>
+              device.available &&
+              device.probe_ok
+          );
+
+
+      if (
+        selectedDeviceId &&
+        usableDevices
+          .some(
+            (
+              device
+            ) =>
+              device.id ===
+              selectedDeviceId
+          )
+      ) {
+        return;
+      }
+
+
+      if (
+        usableDevices
+          .length ===
+        1
+      ) {
+        setSelectedDeviceId(
+          usableDevices[0].id
+        );
+
+        return;
+      }
+
+
+      if (
+        selectedDeviceId !==
+        null
+      ) {
+        setSelectedDeviceId(
+          null
+        );
+      }
+    },
+    [
+      devicesResponse,
+      selectedDeviceId,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        activeProtocol
+      ) {
+        localStorage
+          .setItem(
+            STORAGE_KEYS
+              .activeProtocol,
+
+            activeProtocol
+          );
+      } else {
+        localStorage
+          .removeItem(
+            STORAGE_KEYS
+              .activeProtocol
+          );
+      }
+    },
+    [
+      activeProtocol,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        selectedDeviceId
+      ) {
+        localStorage
+          .setItem(
+            STORAGE_KEYS
+              .selectedDeviceId,
+
+            selectedDeviceId
+          );
+      } else {
+        localStorage
+          .removeItem(
+            STORAGE_KEYS
+              .selectedDeviceId
+          );
+      }
+    },
+    [
+      selectedDeviceId,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      localStorage
+        .setItem(
+          STORAGE_KEYS
+            .fmConfig,
+
+          JSON.stringify(
+            fmConfig
+          )
+        );
+    },
+    [
+      fmConfig,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      localStorage
+        .setItem(
+          STORAGE_KEYS
+            .dmrConfig,
+
+          JSON.stringify(
+            dmrConfig
+          )
+        );
+    },
+    [
+      dmrConfig,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      localStorage
+        .setItem(
+          STORAGE_KEYS
+            .p25Config,
+
+          JSON.stringify(
+            p25Config
+          )
+        );
+    },
+    [
+      p25Config,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      localStorage
+        .setItem(
+          STORAGE_KEYS
+            .tetraConfig,
+
+          JSON.stringify(
+            tetraConfig
+          )
+        );
+    },
+    [
+      tetraConfig,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        !modeConfigsLoaded
+      ) {
+        return;
+      }
+
+      const timer =
+        window.setTimeout(
+          () => {
+            try {
+              void saveModeConfig({
+                protocol:
+                  "fm",
+
+                frequency_hz:
+                  frequencyToHz(
+                    fmConfig
+                      .frequency
+                  ),
+
+                channel_spacing_khz:
+                  Number(
+                    fmConfig
+                      .channelSpacing
+                  ),
+
+                deviation_khz:
+                  Number(
+                    fmConfig
+                      .deviation
+                  ),
+
+                tx_ctcss_hz:
+                  optionalNumber(
+                    fmConfig
+                      .txCtcss
+                  ),
+
+                rx_ctcss_hz:
+                  optionalNumber(
+                    fmConfig
+                      .rxCtcss
+                  ),
+
+                pre_emphasis:
+                  fmConfig
+                    .preEmphasis ===
+                  "on",
+              });
+
+            } catch {
+              // Incomplete input.
+            }
+          },
+          700
+        );
+
+      return () => {
+        window.clearTimeout(
+          timer
+        );
+      };
+    },
+    [
+      fmConfig,
+      modeConfigsLoaded,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        !modeConfigsLoaded
+      ) {
+        return;
+      }
+
+      const timer =
+        window.setTimeout(
+          () => {
+            try {
+              void saveModeConfig({
+                protocol:
+                  "dmr",
+
+                frequency_hz:
+                  frequencyToHz(
+                    dmrConfig
+                      .frequency
+                  ),
+
+                color_code:
+                  requiredInteger(
+                    dmrConfig
+                      .colorCode,
+
+                    "Color Code"
+                  ),
+
+                timeslot:
+                  requiredInteger(
+                    dmrConfig
+                      .timeslot,
+
+                    "Timeslot"
+                  ),
+
+                talkgroup:
+                  requiredInteger(
+                    dmrConfig
+                      .talkgroup,
+
+                    "Talkgroup"
+                  ),
+
+                radio_id:
+                  requiredInteger(
+                    dmrConfig
+                      .radioId,
+
+                    "Radio ID"
+                  ),
+              });
+
+            } catch {
+              // Incomplete input.
+            }
+          },
+          700
+        );
+
+      return () => {
+        window.clearTimeout(
+          timer
+        );
+      };
+    },
+    [
+      dmrConfig,
+      modeConfigsLoaded,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        !modeConfigsLoaded
+      ) {
+        return;
+      }
+
+      const timer =
+        window.setTimeout(
+          () => {
+            try {
+              void saveModeConfig({
+                protocol:
+                  "p25",
+
+                frequency_hz:
+                  frequencyToHz(
+                    p25Config
+                      .frequency
+                  ),
+
+                nac:
+                  p25Config
+                    .nac
+                    .trim(),
+
+                talkgroup:
+                  requiredInteger(
+                    p25Config
+                      .talkgroup,
+
+                    "Talkgroup"
+                  ),
+
+                radio_id:
+                  requiredInteger(
+                    p25Config
+                      .radioId,
+
+                    "Radio ID"
+                  ),
+
+                modulation:
+                  p25Config
+                    .modulation,
+              });
+
+            } catch {
+              // Incomplete input.
+            }
+          },
+          700
+        );
+
+      return () => {
+        window.clearTimeout(
+          timer
+        );
+      };
+    },
+    [
+      p25Config,
+      modeConfigsLoaded,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        !modeConfigsLoaded
+      ) {
+        return;
+      }
+
+      const timer =
+        window.setTimeout(
+          () => {
+            try {
+              void saveModeConfig({
+                protocol:
+                  "tetra",
+
+                frequency_hz:
+                  frequencyToHz(
+                    tetraConfig
+                      .frequency
+                  ),
+
+                mode:
+                  tetraConfig
+                    .mode,
+
+                mcc:
+                  tetraConfig
+                    .mcc
+                    .trim(),
+
+                mnc:
+                  tetraConfig
+                    .mnc
+                    .trim(),
+
+                color_code:
+                  requiredInteger(
+                    tetraConfig
+                      .colorCode,
+
+                    "Color Code"
+                  ),
+
+                gssi:
+                  requiredInteger(
+                    tetraConfig
+                      .gssi,
+
+                    "GSSI"
+                  ),
+              });
+
+            } catch {
+              // Incomplete input.
+            }
+          },
+          700
+        );
+
+      return () => {
+        window.clearTimeout(
+          timer
+        );
+      };
+    },
+    [
+      tetraConfig,
+      modeConfigsLoaded,
+    ]
+  );
+
+
+  const toggleProtocol =
+    (
+      protocol:
+        Protocol
+    ) => {
+      if (
+        runtimeActive
+      ) {
+        return;
+      }
+
+      setRuntimeMessage(
         null
       );
-    }
-  }, [
-    devicesResponse,
-    selectedDeviceId,
-  ]);
 
-
-  useEffect(() => {
-    if (
-      activeProtocol
-    ) {
-      localStorage.setItem(
-        STORAGE_KEYS.activeProtocol,
-        activeProtocol
-      );
-    } else {
-      localStorage.removeItem(
-        STORAGE_KEYS.activeProtocol
-      );
-    }
-  }, [
-    activeProtocol,
-  ]);
-
-
-  useEffect(() => {
-    if (
-      selectedDeviceId
-    ) {
-      localStorage.setItem(
-        STORAGE_KEYS.selectedDeviceId,
-        selectedDeviceId
-      );
-    } else {
-      localStorage.removeItem(
-        STORAGE_KEYS.selectedDeviceId
-      );
-    }
-  }, [
-    selectedDeviceId,
-  ]);
-
-
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEYS.fmConfig,
-      JSON.stringify(
-        fmConfig
-      )
-    );
-  }, [
-    fmConfig,
-  ]);
-
-
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEYS.dmrConfig,
-      JSON.stringify(
-        dmrConfig
-      )
-    );
-  }, [
-    dmrConfig,
-  ]);
-
-
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEYS.p25Config,
-      JSON.stringify(
-        p25Config
-      )
-    );
-  }, [
-    p25Config,
-  ]);
-
-
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEYS.tetraConfig,
-      JSON.stringify(
-        tetraConfig
-      )
-    );
-  }, [
-    tetraConfig,
-  ]);
-
-
-  useEffect(() => {
-    if (
-      !modeConfigsLoaded
-    ) {
-      return;
-    }
-
-    const timer =
-      window.setTimeout(
-        () => {
-          try {
-            void saveModeConfig({
-              protocol: "fm",
-
-              frequency_hz:
-                frequencyToHz(
-                  fmConfig.frequency
-                ),
-
-              channel_spacing_khz:
-                Number(
-                  fmConfig.channelSpacing
-                ),
-
-              deviation_khz:
-                Number(
-                  fmConfig.deviation
-                ),
-
-              tx_ctcss_hz:
-                optionalNumber(
-                  fmConfig.txCtcss
-                ),
-
-              rx_ctcss_hz:
-                optionalNumber(
-                  fmConfig.rxCtcss
-                ),
-
-              pre_emphasis:
-                fmConfig.preEmphasis ===
-                "on",
-            });
-
-          } catch {
-            // Do not save incomplete input.
-          }
-        },
-        700
+      setRuntimeError(
+        null
       );
 
-    return () => {
-      window.clearTimeout(
-        timer
+      setActiveProtocol(
+        (
+          current
+        ) =>
+          current ===
+          protocol
+            ? null
+            : protocol
       );
     };
-  }, [
-    fmConfig,
-    modeConfigsLoaded,
-  ]);
 
 
-  useEffect(() => {
-    if (
-      !modeConfigsLoaded
-    ) {
-      return;
-    }
+  const selectDevice =
+    (
+      device:
+        RFDevice
+    ) => {
+      if (
+        runtimeActive
+      ) {
+        return;
+      }
 
-    const timer =
-      window.setTimeout(
-        () => {
-          try {
-            void saveModeConfig({
-              protocol: "dmr",
+      if (
+        !device.available ||
+        !device.probe_ok
+      ) {
+        return;
+      }
 
-              frequency_hz:
-                frequencyToHz(
-                  dmrConfig.frequency
-                ),
-
-              color_code:
-                requiredInteger(
-                  dmrConfig.colorCode,
-                  "Color Code"
-                ),
-
-              timeslot:
-                requiredInteger(
-                  dmrConfig.timeslot,
-                  "Timeslot"
-                ),
-
-              talkgroup:
-                requiredInteger(
-                  dmrConfig.talkgroup,
-                  "Talkgroup"
-                ),
-
-              radio_id:
-                requiredInteger(
-                  dmrConfig.radioId,
-                  "Radio ID"
-                ),
-            });
-
-          } catch {
-            // Do not save incomplete input.
-          }
-        },
-        700
+      setSelectedDeviceId(
+        device.id
       );
 
-    return () => {
-      window.clearTimeout(
-        timer
+      setRuntimeMessage(
+        null
+      );
+
+      setRuntimeError(
+        null
       );
     };
-  }, [
-    dmrConfig,
-    modeConfigsLoaded,
-  ]);
-
-
-  useEffect(() => {
-    if (
-      !modeConfigsLoaded
-    ) {
-      return;
-    }
-
-    const timer =
-      window.setTimeout(
-        () => {
-          try {
-            void saveModeConfig({
-              protocol: "p25",
-
-              frequency_hz:
-                frequencyToHz(
-                  p25Config.frequency
-                ),
-
-              nac:
-                p25Config.nac.trim(),
-
-              talkgroup:
-                requiredInteger(
-                  p25Config.talkgroup,
-                  "Talkgroup"
-                ),
-
-              radio_id:
-                requiredInteger(
-                  p25Config.radioId,
-                  "Radio ID"
-                ),
-
-              modulation:
-                p25Config.modulation,
-            });
-
-          } catch {
-            // Do not save incomplete input.
-          }
-        },
-        700
-      );
-
-    return () => {
-      window.clearTimeout(
-        timer
-      );
-    };
-  }, [
-    p25Config,
-    modeConfigsLoaded,
-  ]);
-
-
-  useEffect(() => {
-    if (
-      !modeConfigsLoaded
-    ) {
-      return;
-    }
-
-    const timer =
-      window.setTimeout(
-        () => {
-          try {
-            void saveModeConfig({
-              protocol: "tetra",
-
-              frequency_hz:
-                frequencyToHz(
-                  tetraConfig.frequency
-                ),
-
-              mode:
-                tetraConfig.mode,
-
-              mcc:
-                tetraConfig.mcc.trim(),
-
-              mnc:
-                tetraConfig.mnc.trim(),
-
-              color_code:
-                requiredInteger(
-                  tetraConfig.colorCode,
-                  "Color Code"
-                ),
-
-              gssi:
-                requiredInteger(
-                  tetraConfig.gssi,
-                  "GSSI"
-                ),
-            });
-
-          } catch {
-            // Do not save incomplete input.
-          }
-        },
-        700
-      );
-
-    return () => {
-      window.clearTimeout(
-        timer
-      );
-    };
-  }, [
-    tetraConfig,
-    modeConfigsLoaded,
-  ]);
-
-
-  const toggleProtocol = (
-    protocol: Protocol
-  ) => {
-    if (
-      runtimeActive
-    ) {
-      return;
-    }
-
-    setRuntimeMessage(
-      null
-    );
-
-    setRuntimeError(
-      null
-    );
-
-    setActiveProtocol(
-      (current) =>
-        current === protocol
-          ? null
-          : protocol
-    );
-  };
-
-
-  const selectDevice = (
-    device: RFDevice
-  ) => {
-    if (
-      runtimeActive
-    ) {
-      return;
-    }
-
-    if (
-      !device.available ||
-      !device.probe_ok
-    ) {
-      return;
-    }
-
-    setSelectedDeviceId(
-      device.id
-    );
-
-    setRuntimeMessage(
-      null
-    );
-
-    setRuntimeError(
-      null
-    );
-  };
 
 
   const buildStartPayload =
@@ -1520,7 +1889,8 @@ function App() {
         "fm"
       ) {
         return {
-          protocol: "fm",
+          protocol:
+            "fm",
 
           device_id:
             selectedDevice.id,
@@ -1532,26 +1902,31 @@ function App() {
 
           channel_spacing_khz:
             Number(
-              fmConfig.channelSpacing
+              fmConfig
+                .channelSpacing
             ),
 
           deviation_khz:
             Number(
-              fmConfig.deviation
+              fmConfig
+                .deviation
             ),
 
           tx_ctcss_hz:
             optionalNumber(
-              fmConfig.txCtcss
+              fmConfig
+                .txCtcss
             ),
 
           rx_ctcss_hz:
             optionalNumber(
-              fmConfig.rxCtcss
+              fmConfig
+                .rxCtcss
             ),
 
           pre_emphasis:
-            fmConfig.preEmphasis ===
+            fmConfig
+              .preEmphasis ===
             "on",
         };
       }
@@ -1562,37 +1937,47 @@ function App() {
         "dmr"
       ) {
         return {
-          protocol: "dmr",
+          protocol:
+            "dmr",
 
           device_id:
             selectedDevice.id,
 
           frequency_hz:
             frequencyToHz(
-              dmrConfig.frequency
+              dmrConfig
+                .frequency
             ),
 
           color_code:
             requiredInteger(
-              dmrConfig.colorCode,
+              dmrConfig
+                .colorCode,
+
               "Color Code"
             ),
 
           timeslot:
             requiredInteger(
-              dmrConfig.timeslot,
+              dmrConfig
+                .timeslot,
+
               "Timeslot"
             ),
 
           talkgroup:
             requiredInteger(
-              dmrConfig.talkgroup,
+              dmrConfig
+                .talkgroup,
+
               "Talkgroup"
             ),
 
           radio_id:
             requiredInteger(
-              dmrConfig.radioId,
+              dmrConfig
+                .radioId,
+
               "Radio ID"
             ),
         };
@@ -1604,66 +1989,86 @@ function App() {
         "p25"
       ) {
         return {
-          protocol: "p25",
+          protocol:
+            "p25",
 
           device_id:
             selectedDevice.id,
 
           frequency_hz:
             frequencyToHz(
-              p25Config.frequency
+              p25Config
+                .frequency
             ),
 
           nac:
-            p25Config.nac.trim(),
+            p25Config
+              .nac
+              .trim(),
 
           talkgroup:
             requiredInteger(
-              p25Config.talkgroup,
+              p25Config
+                .talkgroup,
+
               "Talkgroup"
             ),
 
           radio_id:
             requiredInteger(
-              p25Config.radioId,
+              p25Config
+                .radioId,
+
               "Radio ID"
             ),
 
           modulation:
-            p25Config.modulation,
+            p25Config
+              .modulation,
         };
       }
 
 
       return {
-        protocol: "tetra",
+        protocol:
+          "tetra",
 
         device_id:
           selectedDevice.id,
 
         frequency_hz:
           frequencyToHz(
-            tetraConfig.frequency
+            tetraConfig
+              .frequency
           ),
 
         mode:
-          tetraConfig.mode,
+          tetraConfig
+            .mode,
 
         mcc:
-          tetraConfig.mcc.trim(),
+          tetraConfig
+            .mcc
+            .trim(),
 
         mnc:
-          tetraConfig.mnc.trim(),
+          tetraConfig
+            .mnc
+            .trim(),
 
         color_code:
           requiredInteger(
-            tetraConfig.colorCode,
+            tetraConfig
+              .colorCode,
+
             "Color Code"
           ),
 
         gssi:
           requiredInteger(
-            tetraConfig.gssi,
+            tetraConfig
+              .gssi,
+
             "GSSI"
           ),
       };
@@ -1699,7 +2104,8 @@ function App() {
           await fetch(
             `${API_BASE_URL}/api/rf/start`,
             {
-              method: "POST",
+              method:
+                "POST",
 
               headers: {
                 "Content-Type":
@@ -1715,7 +2121,8 @@ function App() {
 
 
         const data =
-          await response.json();
+          await response
+            .json();
 
 
         if (
@@ -1750,9 +2157,12 @@ function App() {
           `${activeProtocol?.toUpperCase()} runtime started on ${getDeviceDisplayName(selectedDevice)}`
         );
 
-      } catch (error) {
+      } catch (
+        error
+      ) {
         if (
-          error instanceof Error
+          error instanceof
+          Error
         ) {
           setRuntimeError(
             error.message
@@ -1769,6 +2179,10 @@ function App() {
   const handleStop =
     async () => {
       try {
+        setCalibrationOpen(
+          false
+        );
+
         setRuntimeMessage(
           null
         );
@@ -1782,13 +2196,15 @@ function App() {
           await fetch(
             `${API_BASE_URL}/api/rf/stop`,
             {
-              method: "POST",
+              method:
+                "POST",
             }
           );
 
 
         const data =
-          await response.json();
+          await response
+            .json();
 
 
         if (
@@ -1818,9 +2234,12 @@ function App() {
           "RF runtime stopped"
         );
 
-      } catch (error) {
+      } catch (
+        error
+      ) {
         if (
-          error instanceof Error
+          error instanceof
+          Error
         ) {
           setRuntimeError(
             error.message
@@ -1924,7 +2343,7 @@ function App() {
           </strong>
 
           <p>
-            Active audio → RF routes
+            Active RF runtime
           </p>
         </section>
 
@@ -1935,11 +2354,13 @@ function App() {
           </h2>
 
           <strong>
-            --
+            {runtimeActive
+              ? "READY"
+              : "--"}
           </strong>
 
           <p>
-            BER / frequency offset
+            Controlled RF diagnostics
           </p>
         </section>
 
@@ -1985,7 +2406,8 @@ function App() {
 
           {!devicesLoading &&
             !devicesError &&
-            deviceCount === 0 && (
+            deviceCount ===
+              0 && (
               <div className="protocol-disabled">
                 No RF devices detected.
               </div>
@@ -1995,15 +2417,23 @@ function App() {
           {devicesResponse &&
             devicesResponse
               .devices
-              .length > 0 && (
+              .length >
+              0 && (
               <div className="rf-device-grid">
                 {devicesResponse
                   .devices
                   .map(
-                    (device) => (
+                    (
+                      device
+                    ) => (
                       <RFDeviceCard
-                        key={device.id}
-                        device={device}
+                        key={
+                          device.id
+                        }
+
+                        device={
+                          device
+                        }
 
                         selected={
                           device.id ===
@@ -2077,7 +2507,10 @@ function App() {
           {activeProtocol ===
             "fm" && (
             <FMConfigForm
-              value={fmConfig}
+              value={
+                fmConfig
+              }
+
               onChange={
                 setFmConfig
               }
@@ -2088,7 +2521,10 @@ function App() {
           {activeProtocol ===
             "dmr" && (
             <DMRConfigForm
-              value={dmrConfig}
+              value={
+                dmrConfig
+              }
+
               onChange={
                 setDmrConfig
               }
@@ -2099,7 +2535,10 @@ function App() {
           {activeProtocol ===
             "p25" && (
             <P25ConfigForm
-              value={p25Config}
+              value={
+                p25Config
+              }
+
               onChange={
                 setP25Config
               }
@@ -2110,7 +2549,10 @@ function App() {
           {activeProtocol ===
             "tetra" && (
             <TETRAConfigForm
-              value={tetraConfig}
+              value={
+                tetraConfig
+              }
+
               onChange={
                 setTetraConfig
               }
@@ -2125,9 +2567,11 @@ function App() {
                 selectedDevice
               )}
               {" · "}
-              {selectedDevice.backend}
+              {selectedDevice
+                .backend}
               {" · "}
-              {selectedDevice.driver}
+              {selectedDevice
+                .driver}
             </div>
           )}
 
@@ -2181,7 +2625,18 @@ function App() {
               disabled={
                 !activeProtocol ||
                 !selectedDevice ||
-                runtimeActive
+                !runtimeActive ||
+                !mmdvmStatus
+                  ?.runtime_ready ||
+                rfTxActive
+              }
+
+              onClick={
+                () => {
+                  setCalibrationOpen(
+                    true
+                  );
+                }
               }
             >
               CALIBRATE
@@ -2395,7 +2850,7 @@ function App() {
             </span>
 
             <strong>
-              -- %
+              N/A
             </strong>
           </div>
 
@@ -2406,7 +2861,7 @@ function App() {
             </span>
 
             <strong>
-              -- Hz
+              N/A
             </strong>
           </div>
 
@@ -2428,11 +2883,60 @@ function App() {
             </span>
 
             <strong>
-              -- dBFS
+              N/A
             </strong>
           </div>
         </section>
       </main>
+
+
+      <CalibrationPanel
+        open={
+          calibrationOpen
+        }
+
+        runtimeActive={
+          runtimeActive
+        }
+
+        runtimeReady={
+          Boolean(
+            mmdvmStatus
+              ?.runtime_ready
+          )
+        }
+
+        rfTxActive={
+          rfTxActive
+        }
+
+        protocol={
+          activeProtocol
+        }
+
+        channelFrequencyHz={
+          mmdvmStatus
+            ?.channel_frequency_hz
+        }
+
+        sdrCenterFrequencyHz={
+          mmdvmStatus
+            ?.sdr_tx_center_frequency_hz
+        }
+
+        digitalIfHz={
+          mmdvmStatus
+            ?.digital_if_hz
+        }
+
+        onClose={
+          () => {
+            setCalibrationOpen(
+              false
+            );
+          }
+        }
+      />
     </div>
   );
 }
