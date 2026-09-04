@@ -36,6 +36,7 @@ type RFStatus = {
   protocol: Protocol | null;
   device_id?: string | null;
   config: unknown;
+  error?: string | null;
 };
 
 
@@ -678,12 +679,21 @@ function App() {
         );
       }
 
+      if (!selectedDevice) {
+        throw new Error(
+          "Select an RF device first"
+        );
+      }
+
 
       if (
         activeProtocol === "fm"
       ) {
         return {
           protocol: "fm",
+
+          device_id:
+            selectedDevice.id,
 
           frequency_hz:
             frequencyToHz(
@@ -726,6 +736,9 @@ function App() {
         return {
           protocol: "dmr",
 
+          device_id:
+            selectedDevice.id,
+
           frequency_hz:
             frequencyToHz(
               dmrConfig.frequency
@@ -764,6 +777,9 @@ function App() {
         return {
           protocol: "p25",
 
+          device_id:
+            selectedDevice.id,
+
           frequency_hz:
             frequencyToHz(
               p25Config.frequency
@@ -794,6 +810,9 @@ function App() {
 
       return {
         protocol: "tetra",
+
+        device_id:
+          selectedDevice.id,
 
         frequency_hz:
           frequencyToHz(
@@ -886,13 +905,27 @@ function App() {
         }
 
 
+        if (data.error) {
+          throw new Error(
+            data.error
+          );
+        }
+
+
         setTxActive(
           data.tx
         );
 
 
+        if (data.device_id) {
+          setSelectedDeviceId(
+            data.device_id
+          );
+        }
+
+
         setRuntimeMessage(
-          `${activeProtocol?.toUpperCase()} runtime started`
+          `${activeProtocol?.toUpperCase()} runtime started on ${getDeviceDisplayName(selectedDevice)}`
         );
       } catch (error) {
         if (
@@ -938,6 +971,13 @@ function App() {
         if (!response.ok) {
           throw new Error(
             `HTTP ${response.status}`
+          );
+        }
+
+
+        if (data.error) {
+          throw new Error(
+            data.error
           );
         }
 
