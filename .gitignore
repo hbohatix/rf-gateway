@@ -1,0 +1,129 @@
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.so
+
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+*.egg-info/
+.installed.cfg
+*.egg
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+
+# =========================
+# Node / React / Vite
+# =========================
+
+node_modules/
+
+frontend/node_modules/
+
+dist/
+frontend/dist/
+
+.vite/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# =========================
+# Environment files
+# =========================
+
+.env
+.env.local
+.env.*.local
+
+!.env.example
+
+
+# =========================
+# IDE
+# =========================
+
+.vscode/
+.idea/
+
+*.iml
+
+
+# =========================
+# Windows
+# =========================
+
+Thumbs.db
+Desktop.ini
+
+*.lnk
+
+
+# =========================
+# macOS
+# =========================
+
+.DS_Store
+
+
+# =========================
+# Runtime / logs
+# =========================
+
+logs/
+*.log
+
+runtime/
+tmp/
+
+
+# =========================
+# Database / local data
+# =========================
+
+*.db
+*.sqlite
+*.sqlite3
+
+postgres_data/
+redis_data/
+
+
+# =========================
+# RF Gateway
+# =========================
+
+backend/runtime/
+backend/data/
+
+calibration-data/
+captures/
+recordings/
