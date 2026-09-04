@@ -15,7 +15,7 @@ from app.rf import (
 )
 
 
-API_VERSION = "0.6.0"
+API_VERSION = "0.7.0"
 
 
 ModeProtocol = Literal[
@@ -91,12 +91,8 @@ class DeviceConfigureRequest(BaseModel):
     tx_gain_db: float | None = None
 
 
-class FMStartRequest(BaseModel):
+class FMModeSettings(BaseModel):
     protocol: Literal["fm"]
-
-    device_id: str = Field(
-        min_length=1,
-    )
 
     frequency_hz: int = Field(
         gt=0,
@@ -118,12 +114,8 @@ class FMStartRequest(BaseModel):
     pre_emphasis: bool
 
 
-class DMRStartRequest(BaseModel):
+class DMRModeSettings(BaseModel):
     protocol: Literal["dmr"]
-
-    device_id: str = Field(
-        min_length=1,
-    )
 
     frequency_hz: int = Field(
         gt=0,
@@ -148,12 +140,8 @@ class DMRStartRequest(BaseModel):
     )
 
 
-class P25StartRequest(BaseModel):
+class P25ModeSettings(BaseModel):
     protocol: Literal["p25"]
-
-    device_id: str = Field(
-        min_length=1,
-    )
 
     frequency_hz: int = Field(
         gt=0,
@@ -177,12 +165,8 @@ class P25StartRequest(BaseModel):
     ]
 
 
-class TETRAStartRequest(BaseModel):
+class TETRAModeSettings(BaseModel):
     protocol: Literal["tetra"]
-
-    device_id: str = Field(
-        min_length=1,
-    )
 
     frequency_hz: int = Field(
         gt=0,
@@ -207,6 +191,43 @@ class TETRAStartRequest(BaseModel):
 
     gssi: int = Field(
         ge=0,
+    )
+
+
+ModeSettingsRequest = Annotated[
+    Union[
+        FMModeSettings,
+        DMRModeSettings,
+        P25ModeSettings,
+        TETRAModeSettings,
+    ],
+    Field(
+        discriminator="protocol",
+    ),
+]
+
+
+class FMStartRequest(FMModeSettings):
+    device_id: str = Field(
+        min_length=1,
+    )
+
+
+class DMRStartRequest(DMRModeSettings):
+    device_id: str = Field(
+        min_length=1,
+    )
+
+
+class P25StartRequest(P25ModeSettings):
+    device_id: str = Field(
+        min_length=1,
+    )
+
+
+class TETRAStartRequest(TETRAModeSettings):
+    device_id: str = Field(
+        min_length=1,
     )
 
 
@@ -309,6 +330,32 @@ def get_mode_config(
     return {
         "protocol": protocol,
         "config": config,
+    }
+
+
+@app.put("/api/config/modes")
+def save_mode_config(
+    request: ModeSettingsRequest,
+):
+    request_data = (
+        request.model_dump()
+    )
+
+    protocol = (
+        request.protocol
+    )
+
+    saved = (
+        mode_config_store
+        .save_mode(
+            protocol,
+            request_data,
+        )
+    )
+
+    return {
+        "protocol": protocol,
+        "config": saved,
     }
 
 

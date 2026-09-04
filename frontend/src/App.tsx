@@ -363,6 +363,13 @@ function App() {
 
 
   const [
+    modeConfigsLoaded,
+    setModeConfigsLoaded,
+  ] =
+    useState(false);
+
+
+  const [
     txActive,
     setTxActive,
   ] =
@@ -656,6 +663,54 @@ function App() {
           "Unable to load saved mode configurations:",
           error
         );
+      } finally {
+        setModeConfigsLoaded(
+          true
+        );
+      }
+    };
+
+
+  const saveModeConfig =
+    async (
+      payload: object
+    ) => {
+      try {
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/config/modes`,
+            {
+              method: "PUT",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify(
+                  payload
+                ),
+            }
+          );
+
+        if (!response.ok) {
+          const data =
+            await response.json();
+
+          throw new Error(
+            typeof data.detail === "string"
+              ? data.detail
+              : JSON.stringify(
+                  data.detail
+                )
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Unable to save mode configuration:",
+          error
+        );
       }
     };
 
@@ -855,6 +910,233 @@ function App() {
     );
   }, [
     tetraConfig,
+  ]);
+
+
+  useEffect(() => {
+    if (!modeConfigsLoaded) {
+      return;
+    }
+
+    const timer =
+      window.setTimeout(
+        () => {
+          try {
+            void saveModeConfig({
+              protocol: "fm",
+
+              frequency_hz:
+                frequencyToHz(
+                  fmConfig.frequency
+                ),
+
+              channel_spacing_khz:
+                Number(
+                  fmConfig.channelSpacing
+                ),
+
+              deviation_khz:
+                Number(
+                  fmConfig.deviation
+                ),
+
+              tx_ctcss_hz:
+                optionalNumber(
+                  fmConfig.txCtcss
+                ),
+
+              rx_ctcss_hz:
+                optionalNumber(
+                  fmConfig.rxCtcss
+                ),
+
+              pre_emphasis:
+                fmConfig.preEmphasis ===
+                "on",
+            });
+          } catch {
+            // Do not save incomplete input.
+          }
+        },
+        700
+      );
+
+    return () => {
+      window.clearTimeout(
+        timer
+      );
+    };
+  }, [
+    fmConfig,
+    modeConfigsLoaded,
+  ]);
+
+
+  useEffect(() => {
+    if (!modeConfigsLoaded) {
+      return;
+    }
+
+    const timer =
+      window.setTimeout(
+        () => {
+          try {
+            void saveModeConfig({
+              protocol: "dmr",
+
+              frequency_hz:
+                frequencyToHz(
+                  dmrConfig.frequency
+                ),
+
+              color_code:
+                requiredInteger(
+                  dmrConfig.colorCode,
+                  "Color Code"
+                ),
+
+              timeslot:
+                requiredInteger(
+                  dmrConfig.timeslot,
+                  "Timeslot"
+                ),
+
+              talkgroup:
+                requiredInteger(
+                  dmrConfig.talkgroup,
+                  "Talkgroup"
+                ),
+
+              radio_id:
+                requiredInteger(
+                  dmrConfig.radioId,
+                  "Radio ID"
+                ),
+            });
+          } catch {
+            // Do not save incomplete input.
+          }
+        },
+        700
+      );
+
+    return () => {
+      window.clearTimeout(
+        timer
+      );
+    };
+  }, [
+    dmrConfig,
+    modeConfigsLoaded,
+  ]);
+
+
+  useEffect(() => {
+    if (!modeConfigsLoaded) {
+      return;
+    }
+
+    const timer =
+      window.setTimeout(
+        () => {
+          try {
+            void saveModeConfig({
+              protocol: "p25",
+
+              frequency_hz:
+                frequencyToHz(
+                  p25Config.frequency
+                ),
+
+              nac:
+                p25Config.nac.trim(),
+
+              talkgroup:
+                requiredInteger(
+                  p25Config.talkgroup,
+                  "Talkgroup"
+                ),
+
+              radio_id:
+                requiredInteger(
+                  p25Config.radioId,
+                  "Radio ID"
+                ),
+
+              modulation:
+                p25Config.modulation,
+            });
+          } catch {
+            // Do not save incomplete input.
+          }
+        },
+        700
+      );
+
+    return () => {
+      window.clearTimeout(
+        timer
+      );
+    };
+  }, [
+    p25Config,
+    modeConfigsLoaded,
+  ]);
+
+
+  useEffect(() => {
+    if (!modeConfigsLoaded) {
+      return;
+    }
+
+    const timer =
+      window.setTimeout(
+        () => {
+          try {
+            void saveModeConfig({
+              protocol: "tetra",
+
+              frequency_hz:
+                frequencyToHz(
+                  tetraConfig.frequency
+                ),
+
+              mode:
+                tetraConfig.mode,
+
+              mcc:
+                tetraConfig.mcc.trim(),
+
+              mnc:
+                tetraConfig.mnc.trim(),
+
+              color_code:
+                requiredInteger(
+                  tetraConfig.colorCode,
+                  "Color Code"
+                ),
+
+              gssi:
+                requiredInteger(
+                  tetraConfig.gssi,
+                  "GSSI"
+                ),
+            });
+          } catch {
+            // Do not save incomplete input.
+          }
+        },
+        700
+      );
+
+    return () => {
+      window.clearTimeout(
+        timer
+      );
+    };
+  }, [
+    tetraConfig,
+    modeConfigsLoaded,
   ]);
 
 
