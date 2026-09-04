@@ -28,6 +28,11 @@ select {
   min-height: 100vh;
 }
 
+
+/* ============================================================
+   Header
+   ============================================================ */
+
 .header {
   height: 80px;
 
@@ -76,6 +81,11 @@ select {
   background: #f85149;
 }
 
+
+/* ============================================================
+   Main dashboard
+   ============================================================ */
+
 .dashboard {
   padding: 28px 32px;
 
@@ -120,6 +130,11 @@ select {
   color: #8b949e;
 }
 
+
+/* ============================================================
+   RF panels
+   ============================================================ */
+
 .rf-panel {
   grid-column: span 3;
 }
@@ -133,6 +148,8 @@ select {
 
   align-items: flex-start;
   justify-content: space-between;
+
+  gap: 20px;
 }
 
 .panel-title h2 {
@@ -155,6 +172,8 @@ select {
   border-radius: 6px;
 
   font-size: 13px;
+
+  white-space: nowrap;
 }
 
 .runtime-badge.tx-on {
@@ -162,6 +181,211 @@ select {
 
   color: white;
 }
+
+
+/* ============================================================
+   RF Device discovery
+   ============================================================ */
+
+.rf-device-grid {
+  margin-top: 20px;
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      auto-fit,
+      minmax(320px, 420px)
+    );
+
+  gap: 16px;
+}
+
+.rf-device-card {
+  width: 100%;
+  min-height: 0;
+
+  padding: 18px;
+
+  display: block;
+
+  text-align: left;
+
+  background: #0d1117;
+
+  color: #e6edf3;
+
+  border: 1px solid #30363d;
+  border-radius: 8px;
+
+  cursor: pointer;
+
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.rf-device-card:hover:not(:disabled) {
+  background: #111820;
+
+  border-color: #58a6ff;
+
+  transform: translateY(-1px);
+}
+
+.rf-device-card.selected {
+  background: #13233a;
+
+  border-color: #58a6ff;
+}
+
+.rf-device-card.error {
+  border-color: #da3633;
+}
+
+.rf-device-card:disabled {
+  opacity: 0.55;
+
+  cursor: not-allowed;
+}
+
+.rf-device-card-header {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 16px;
+}
+
+.rf-device-name {
+  color: #e6edf3;
+
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.rf-device-backend {
+  margin-top: 5px;
+
+  color: #8b949e;
+
+  font-size: 13px;
+}
+
+.rf-device-status {
+  flex-shrink: 0;
+
+  padding: 5px 9px;
+
+  border-radius: 5px;
+
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rf-device-status.ready {
+  color: #56d364;
+
+  background:
+    rgba(46, 160, 67, 0.12);
+
+  border: 1px solid #238636;
+}
+
+.rf-device-status.error {
+  color: #ff7b72;
+
+  background:
+    rgba(248, 81, 73, 0.12);
+
+  border: 1px solid #da3633;
+}
+
+.rf-device-details {
+  margin-top: 18px;
+
+  padding-top: 16px;
+
+  border-top: 1px solid #30363d;
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  column-gap: 28px;
+  row-gap: 10px;
+}
+
+.rf-device-detail {
+  min-width: 0;
+
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+}
+
+.rf-device-detail span {
+  color: #8b949e;
+
+  font-size: 13px;
+}
+
+.rf-device-detail strong {
+  min-width: 0;
+
+  color: #e6edf3;
+
+  font-size: 13px;
+  font-weight: 600;
+
+  text-align: right;
+
+  overflow-wrap: anywhere;
+}
+
+.rf-device-selected {
+  margin-top: 16px;
+
+  padding-top: 12px;
+
+  border-top: 1px solid #30363d;
+
+  color: #58a6ff;
+
+  font-size: 11px;
+  font-weight: 700;
+
+  letter-spacing: 0.08em;
+}
+
+.rf-device-probe-error {
+  margin-top: 14px;
+
+  padding: 10px;
+
+  color: #ff7b72;
+
+  background:
+    rgba(248, 81, 73, 0.1);
+
+  border: 1px solid #da3633;
+  border-radius: 6px;
+
+  font-size: 12px;
+
+  overflow-wrap: anywhere;
+}
+
+
+/* ============================================================
+   Protocol selection
+   ============================================================ */
 
 .protocol-selector {
   margin-top: 22px;
@@ -228,6 +452,11 @@ select {
 
   cursor: not-allowed;
 }
+
+
+/* ============================================================
+   Protocol configuration
+   ============================================================ */
 
 .protocol-config {
   margin-top: 24px;
@@ -297,6 +526,11 @@ select:focus {
   border-color: #58a6ff;
 }
 
+
+/* ============================================================
+   Runtime messages
+   ============================================================ */
+
 .runtime-message,
 .runtime-error {
   margin-top: 18px;
@@ -325,6 +559,11 @@ select:focus {
 
   color: #ff7b72;
 }
+
+
+/* ============================================================
+   Buttons
+   ============================================================ */
 
 .buttons {
   margin-top: 22px;
@@ -367,6 +606,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
+
+/* ============================================================
+   Telemetry
+   ============================================================ */
+
 .telemetry h2 {
   margin-top: 0;
 }
@@ -377,6 +621,8 @@ button:disabled {
   display: flex;
 
   justify-content: space-between;
+
+  gap: 20px;
 
   border-bottom:
     1px solid #30363d;
@@ -390,9 +636,18 @@ button:disabled {
   color: #8b949e;
 }
 
+.telemetry strong {
+  text-align: right;
+}
+
 .tx-value {
   color: #56d364;
 }
+
+
+/* ============================================================
+   Responsive
+   ============================================================ */
 
 @media (max-width: 1100px) {
   .dashboard {
@@ -414,7 +669,16 @@ button:disabled {
     grid-template-columns:
       repeat(2, 1fr);
   }
+
+  .rf-device-grid {
+    grid-template-columns:
+      repeat(
+        auto-fit,
+        minmax(300px, 1fr)
+      );
+  }
 }
+
 
 @media (max-width: 650px) {
   .header {
@@ -425,6 +689,8 @@ button:disabled {
     align-items: flex-start;
 
     gap: 20px;
+
+    flex-direction: column;
   }
 
   .dashboard {
@@ -445,5 +711,27 @@ button:disabled {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .rf-device-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rf-device-details {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-title {
+    align-items: stretch;
+
+    flex-direction: column;
+  }
+
+  .panel-title button {
+    width: 100%;
+  }
+
+  .buttons {
+    flex-wrap: wrap;
   }
 }
