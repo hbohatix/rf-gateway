@@ -23,8 +23,12 @@ from app.rf import (
     rf_device_manager,
 )
 
+from app.sources import (
+    router as sources_router,
+)
 
-API_VERSION = "0.10.0"
+
+API_VERSION = "0.11.0"
 
 
 ModeProtocol = Literal[
@@ -63,6 +67,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+
+app.include_router(
+    sources_router
 )
 
 
