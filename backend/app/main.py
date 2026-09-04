@@ -5,13 +5,25 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app.config_store import (
+    mode_config_store,
+)
+
 from app.rf import (
     discover_soapy_devices,
     rf_device_manager,
 )
 
 
-API_VERSION = "0.5.0"
+API_VERSION = "0.6.0"
+
+
+ModeProtocol = Literal[
+    "fm",
+    "dmr",
+    "p25",
+    "tetra",
+]
 
 
 @asynccontextmanager
@@ -76,7 +88,6 @@ class DeviceConfigureRequest(BaseModel):
     )
 
     rx_gain_db: float | None = None
-
     tx_gain_db: float | None = None
 
 
@@ -267,6 +278,40 @@ async def health():
     }
 
 
+@app.get("/api/config/modes")
+def get_mode_configs():
+    return (
+        mode_config_store
+        .get_all()
+    )
+
+
+@app.get(
+    "/api/config/modes/{protocol}"
+)
+def get_mode_config(
+    protocol: ModeProtocol,
+):
+    config = (
+        mode_config_store
+        .get_mode(protocol)
+    )
+
+    if config is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No saved configuration "
+                f"for {protocol.upper()}"
+            ),
+        )
+
+    return {
+        "protocol": protocol,
+        "config": config,
+    }
+
+
 @app.get("/api/devices")
 def get_devices():
     return discover_soapy_devices()
@@ -329,7 +374,6 @@ def configure_device(
                 device_id
             )
         )
-
 
         applied = {}
 
@@ -439,15 +483,9 @@ def configure_device(
 
 
         return {
-            "device_id":
-                device_id,
-
-            "open":
-                device.is_open,
-
-            "applied":
-                applied,
-
+            "device_id": device_id,
+            "open": device.is_open,
+            "applied": applied,
             "state":
                 device.get_runtime_state(),
         }
@@ -501,6 +539,17 @@ async def rf_start(
         )
 
 
+    request_data = (
+        request.model_dump()
+    )
+
+
+    mode_config_store.save_mode(
+        request.protocol,
+        request_data,
+    )
+
+
     runtime_state["tx"] = True
 
     runtime_state["protocol"] = (
@@ -512,7 +561,7 @@ async def rf_start(
     )
 
     runtime_state["config"] = (
-        request.model_dump()
+        request_data
     )
 
 
@@ -530,7 +579,11 @@ async def rf_start(
     )
 
     print(
-        request.model_dump()
+        request_data
+    )
+
+    print(
+        "Mode configuration saved."
     )
 
     print("================")

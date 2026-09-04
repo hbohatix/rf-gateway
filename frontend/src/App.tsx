@@ -40,6 +40,60 @@ type RFStatus = {
 };
 
 
+type SavedFMConfig = {
+  frequency_hz: number;
+  channel_spacing_khz: number;
+  deviation_khz: number;
+  tx_ctcss_hz: number | null;
+  rx_ctcss_hz: number | null;
+  pre_emphasis: boolean;
+  updated_at?: string;
+};
+
+
+type SavedDMRConfig = {
+  frequency_hz: number;
+  color_code: number;
+  timeslot: number;
+  talkgroup: number;
+  radio_id: number;
+  updated_at?: string;
+};
+
+
+type SavedP25Config = {
+  frequency_hz: number;
+  nac: string;
+  talkgroup: number;
+  radio_id: number;
+  modulation: string;
+  updated_at?: string;
+};
+
+
+type SavedTETRAConfig = {
+  frequency_hz: number;
+  mode: string;
+  mcc: string;
+  mnc: string;
+  color_code: number;
+  gssi: number;
+  updated_at?: string;
+};
+
+
+type SavedModesResponse = {
+  version: number;
+
+  modes: {
+    fm?: SavedFMConfig;
+    dmr?: SavedDMRConfig;
+    p25?: SavedP25Config;
+    tetra?: SavedTETRAConfig;
+  };
+};
+
+
 const API_BASE_URL =
   `${window.location.protocol}//${window.location.hostname}:8000`;
 
@@ -159,6 +213,30 @@ function frequencyToHz(
   return Math.round(
     mhz * 1_000_000
   );
+}
+
+
+function hzToMHzString(
+  frequencyHz: number
+): string {
+  return (
+    frequencyHz /
+    1_000_000
+  ).toFixed(6);
+}
+
+
+function optionalNumberToString(
+  value: number | null | undefined
+): string {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  return String(value);
 }
 
 
@@ -421,6 +499,167 @@ function App() {
     };
 
 
+  const loadSavedModeConfigs =
+    async () => {
+      try {
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/config/modes`
+          );
+
+        if (!response.ok) {
+          throw new Error(
+            `HTTP ${response.status}`
+          );
+        }
+
+        const data =
+          (await response.json()) as SavedModesResponse;
+
+
+        if (data.modes.fm) {
+          const saved =
+            data.modes.fm;
+
+          setFmConfig({
+            frequency:
+              hzToMHzString(
+                saved.frequency_hz
+              ),
+
+            channelSpacing:
+              saved.channel_spacing_khz === 25
+                ? "25"
+                : "12.5",
+
+            deviation:
+              saved.deviation_khz === 5
+                ? "5"
+                : "2.5",
+
+            txCtcss:
+              optionalNumberToString(
+                saved.tx_ctcss_hz
+              ),
+
+            rxCtcss:
+              optionalNumberToString(
+                saved.rx_ctcss_hz
+              ),
+
+            preEmphasis:
+              saved.pre_emphasis
+                ? "on"
+                : "off",
+          });
+        }
+
+
+        if (data.modes.dmr) {
+          const saved =
+            data.modes.dmr;
+
+          setDmrConfig({
+            frequency:
+              hzToMHzString(
+                saved.frequency_hz
+              ),
+
+            colorCode:
+              String(
+                saved.color_code
+              ),
+
+            timeslot:
+              saved.timeslot === 1
+                ? "1"
+                : "2",
+
+            talkgroup:
+              String(
+                saved.talkgroup
+              ),
+
+            radioId:
+              String(
+                saved.radio_id
+              ),
+          });
+        }
+
+
+        if (data.modes.p25) {
+          const saved =
+            data.modes.p25;
+
+          setP25Config({
+            frequency:
+              hzToMHzString(
+                saved.frequency_hz
+              ),
+
+            nac:
+              saved.nac,
+
+            talkgroup:
+              String(
+                saved.talkgroup
+              ),
+
+            radioId:
+              String(
+                saved.radio_id
+              ),
+
+            modulation:
+              saved.modulation === "cqpsk"
+                ? "cqpsk"
+                : "c4fm",
+          });
+        }
+
+
+        if (data.modes.tetra) {
+          const saved =
+            data.modes.tetra;
+
+          setTetraConfig({
+            frequency:
+              hzToMHzString(
+                saved.frequency_hz
+              ),
+
+            mode:
+              saved.mode === "tmo"
+                ? "tmo"
+                : "dmo",
+
+            mcc:
+              saved.mcc,
+
+            mnc:
+              saved.mnc,
+
+            colorCode:
+              String(
+                saved.color_code
+              ),
+
+            gssi:
+              String(
+                saved.gssi
+              ),
+          });
+        }
+      } catch (error) {
+        console.error(
+          "Unable to load saved mode configurations:",
+          error
+        );
+      }
+    };
+
+
   useEffect(() => {
     fetch(
       `${API_BASE_URL}/api/health`
@@ -477,11 +716,11 @@ function App() {
         }
       })
       .catch(() => {
-        // Backend health state
-        // handles connectivity.
+        // Backend health state handles connectivity.
       });
 
 
+    void loadSavedModeConfigs();
     void loadDevices();
   }, []);
 
@@ -626,13 +865,8 @@ function App() {
       return;
     }
 
-    setRuntimeMessage(
-      null
-    );
-
-    setRuntimeError(
-      null
-    );
+    setRuntimeMessage(null);
+    setRuntimeError(null);
 
     setActiveProtocol(
       (current) =>
@@ -661,13 +895,8 @@ function App() {
       device.id
     );
 
-    setRuntimeMessage(
-      null
-    );
-
-    setRuntimeError(
-      null
-    );
+    setRuntimeMessage(null);
+    setRuntimeError(null);
   };
 
 
@@ -702,14 +931,12 @@ function App() {
 
           channel_spacing_khz:
             Number(
-              fmConfig
-                .channelSpacing
+              fmConfig.channelSpacing
             ),
 
           deviation_khz:
             Number(
-              fmConfig
-                .deviation
+              fmConfig.deviation
             ),
 
           tx_ctcss_hz:
@@ -723,8 +950,7 @@ function App() {
             ),
 
           pre_emphasis:
-            fmConfig
-              .preEmphasis ===
+            fmConfig.preEmphasis ===
             "on",
         };
       }
@@ -786,9 +1012,7 @@ function App() {
             ),
 
           nac:
-            p25Config
-              .nac
-              .trim(),
+            p25Config.nac.trim(),
 
           talkgroup:
             requiredInteger(
@@ -823,14 +1047,10 @@ function App() {
           tetraConfig.mode,
 
         mcc:
-          tetraConfig
-            .mcc
-            .trim(),
+          tetraConfig.mcc.trim(),
 
         mnc:
-          tetraConfig
-            .mnc
-            .trim(),
+          tetraConfig.mnc.trim(),
 
         color_code:
           requiredInteger(
@@ -850,13 +1070,8 @@ function App() {
   const handleStart =
     async () => {
       try {
-        setRuntimeMessage(
-          null
-        );
-
-        setRuntimeError(
-          null
-        );
+        setRuntimeMessage(null);
+        setRuntimeError(null);
 
 
         if (!selectedDevice) {
@@ -946,13 +1161,8 @@ function App() {
   const handleStop =
     async () => {
       try {
-        setRuntimeMessage(
-          null
-        );
-
-        setRuntimeError(
-          null
-        );
+        setRuntimeMessage(null);
+        setRuntimeError(null);
 
 
         const response =
@@ -1040,13 +1250,8 @@ function App() {
 
       <main className="dashboard">
         <section className="card">
-          <h2>
-            Sources
-          </h2>
-
-          <strong>
-            0
-          </strong>
+          <h2>Sources</h2>
+          <strong>0</strong>
 
           <p>
             Internet audio streams
@@ -1055,9 +1260,7 @@ function App() {
 
 
         <section className="card">
-          <h2>
-            RF Devices
-          </h2>
+          <h2>RF Devices</h2>
 
           <strong>
             {devicesLoading
@@ -1072,9 +1275,7 @@ function App() {
 
 
         <section className="card">
-          <h2>
-            Routes
-          </h2>
+          <h2>Routes</h2>
 
           <strong>
             {txActive
@@ -1089,13 +1290,8 @@ function App() {
 
 
         <section className="card">
-          <h2>
-            Calibration
-          </h2>
-
-          <strong>
-            --
-          </strong>
+          <h2>Calibration</h2>
+          <strong>--</strong>
 
           <p>
             BER / frequency offset
@@ -1157,16 +1353,14 @@ function App() {
                 {devicesResponse.devices.map(
                   (device) => (
                     <RFDeviceCard
-                      key={
-                        device.id
-                      }
-                      device={
-                        device
-                      }
+                      key={device.id}
+                      device={device}
+
                       selected={
                         device.id ===
                         selectedDeviceId
                       }
+
                       onSelect={
                         txActive
                           ? undefined
@@ -1214,9 +1408,11 @@ function App() {
             activeProtocol={
               activeProtocol
             }
+
             disabled={
               txActive
             }
+
             onToggle={
               toggleProtocol
             }
@@ -1227,7 +1423,6 @@ function App() {
             <div className="protocol-disabled">
               RF output is disabled.
               <br />
-
               Select a protocol above
               to configure it.
             </div>
@@ -1236,48 +1431,32 @@ function App() {
 
           {activeProtocol === "fm" && (
             <FMConfigForm
-              value={
-                fmConfig
-              }
-              onChange={
-                setFmConfig
-              }
+              value={fmConfig}
+              onChange={setFmConfig}
             />
           )}
 
 
           {activeProtocol === "dmr" && (
             <DMRConfigForm
-              value={
-                dmrConfig
-              }
-              onChange={
-                setDmrConfig
-              }
+              value={dmrConfig}
+              onChange={setDmrConfig}
             />
           )}
 
 
           {activeProtocol === "p25" && (
             <P25ConfigForm
-              value={
-                p25Config
-              }
-              onChange={
-                setP25Config
-              }
+              value={p25Config}
+              onChange={setP25Config}
             />
           )}
 
 
           {activeProtocol === "tetra" && (
             <TETRAConfigForm
-              value={
-                tetraConfig
-              }
-              onChange={
-                setTetraConfig
-              }
+              value={tetraConfig}
+              onChange={setTetraConfig}
             />
           )}
 
@@ -1313,11 +1492,13 @@ function App() {
           <div className="buttons">
             <button
               className="start"
+
               disabled={
                 !activeProtocol ||
                 !selectedDevice ||
                 txActive
               }
+
               onClick={
                 handleStart
               }
@@ -1330,6 +1511,7 @@ function App() {
               disabled={
                 !txActive
               }
+
               onClick={
                 handleStop
               }
@@ -1358,9 +1540,7 @@ function App() {
 
 
           <div>
-            <span>
-              TX
-            </span>
+            <span>TX</span>
 
             <strong
               className={
@@ -1405,13 +1585,8 @@ function App() {
 
 
           <div>
-            <span>
-              BER
-            </span>
-
-            <strong>
-              -- %
-            </strong>
+            <span>BER</span>
+            <strong>-- %</strong>
           </div>
 
 
