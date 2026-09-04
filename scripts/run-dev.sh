@@ -11,19 +11,29 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 VENV_DIR="$BACKEND_DIR/.venv"
 
 
-cleanup() {
+BACKEND_PID=""
+FRONTEND_PID=""
 
+
+cleanup() {
     echo
     echo "Stopping RF Gateway..."
 
-    if [ -n "${BACKEND_PID:-}" ]; then
-        kill "$BACKEND_PID" 2>/dev/null || true
+
+    if [ -n "$BACKEND_PID" ]; then
+        kill -- "-$BACKEND_PID" 2>/dev/null || true
     fi
 
-    if [ -n "${FRONTEND_PID:-}" ]; then
-        kill "$FRONTEND_PID" 2>/dev/null || true
+
+    if [ -n "$FRONTEND_PID" ]; then
+        kill -- "-$FRONTEND_PID" 2>/dev/null || true
     fi
 
+
+    wait 2>/dev/null || true
+
+
+    echo "RF Gateway stopped."
 }
 
 
@@ -31,7 +41,6 @@ trap cleanup EXIT INT TERM
 
 
 if [ ! -d "$VENV_DIR" ]; then
-
     echo "ERROR:"
     echo "Python virtual environment does not exist."
     echo
@@ -41,7 +50,6 @@ if [ ! -d "$VENV_DIR" ]; then
     echo
 
     exit 1
-
 fi
 
 
@@ -50,6 +58,34 @@ echo "============================================================"
 echo " RF Gateway Development Runtime"
 echo "============================================================"
 echo
+
+
+# ------------------------------------------------------------
+# Port checks
+# ------------------------------------------------------------
+
+if ss -ltn 2>/dev/null | grep -q ':8000 '; then
+    echo "ERROR:"
+    echo "Port 8000 is already in use."
+    echo
+    echo "Check:"
+    echo "  ss -ltnp | grep ':8000'"
+    echo
+
+    exit 1
+fi
+
+
+if ss -ltn 2>/dev/null | grep -q ':5173 '; then
+    echo "ERROR:"
+    echo "Port 5173 is already in use."
+    echo
+    echo "Check:"
+    echo "  ss -ltnp | grep ':5173'"
+    echo
+
+    exit 1
+fi
 
 
 # ------------------------------------------------------------
@@ -67,7 +103,7 @@ cd "$BACKEND_DIR"
 source "$VENV_DIR/bin/activate"
 
 
-uvicorn app.main:app \
+setsid uvicorn app.main:app \
     --reload \
     --host 0.0.0.0 \
     --port 8000 &
@@ -87,7 +123,10 @@ echo
 cd "$FRONTEND_DIR"
 
 
-npm run dev -- --host 0.0.0.0 &
+setsid npm run dev -- \
+    --host 0.0.0.0 \
+    --port 5173 \
+    --strictPort &
 
 
 FRONTEND_PID=$!

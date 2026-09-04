@@ -1,19 +1,33 @@
+from contextlib import asynccontextmanager
 from typing import Annotated, Literal, Union
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.rf import discover_soapy_devices
+from app.rf import (
+    discover_soapy_devices,
+    rf_device_manager,
+)
 
 
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
+
+
+@asynccontextmanager
+async def lifespan(
+    app: FastAPI,
+):
+    yield
+
+    rf_device_manager.close_all()
 
 
 app = FastAPI(
     title="RF Gateway API",
     description="Backend API for RF Gateway",
     version=API_VERSION,
+    lifespan=lifespan,
 )
 
 
@@ -28,6 +42,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class DeviceConfigureRequest(BaseModel):
+    rx_frequency_hz: float | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    tx_frequency_hz: float | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    rx_sample_rate: float | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    tx_sample_rate: float | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    rx_bandwidth_hz: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    tx_bandwidth_hz: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    rx_gain_db: float | None = None
+
+    tx_gain_db: float | None = None
 
 
 class FMStartRequest(BaseModel):
@@ -177,12 +227,15 @@ def device_exists(
         discover_soapy_devices()
     )
 
-    for device in discovery["devices"]:
+    for device in discovery.get(
+        "devices",
+        [],
+    ):
         if (
-            device.get("id") ==
-            device_id
+            device.get("id")
+            == device_id
         ):
-            return (
+            return bool(
                 device.get(
                     "available",
                     False,
@@ -224,6 +277,208 @@ def refresh_devices():
     return discover_soapy_devices()
 
 
+@app.post(
+    "/api/devices/{device_id}/open"
+)
+def open_device(
+    device_id: str,
+):
+    try:
+        return rf_device_manager.open(
+            device_id
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+
+@app.get(
+    "/api/devices/{device_id}/status"
+)
+def get_device_status(
+    device_id: str,
+):
+    try:
+        return (
+            rf_device_manager
+            .get_status(
+                device_id
+            )
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+
+@app.post(
+    "/api/devices/{device_id}/configure"
+)
+def configure_device(
+    device_id: str,
+    request: DeviceConfigureRequest,
+):
+    try:
+        device = (
+            rf_device_manager.get(
+                device_id
+            )
+        )
+
+
+        applied = {}
+
+
+        if (
+            request.rx_frequency_hz
+            is not None
+        ):
+            applied[
+                "rx_frequency_hz"
+            ] = (
+                device.set_rx_frequency(
+                    request.rx_frequency_hz
+                )
+            )
+
+
+        if (
+            request.tx_frequency_hz
+            is not None
+        ):
+            applied[
+                "tx_frequency_hz"
+            ] = (
+                device.set_tx_frequency(
+                    request.tx_frequency_hz
+                )
+            )
+
+
+        if (
+            request.rx_sample_rate
+            is not None
+        ):
+            applied[
+                "rx_sample_rate"
+            ] = (
+                device.set_rx_sample_rate(
+                    request.rx_sample_rate
+                )
+            )
+
+
+        if (
+            request.tx_sample_rate
+            is not None
+        ):
+            applied[
+                "tx_sample_rate"
+            ] = (
+                device.set_tx_sample_rate(
+                    request.tx_sample_rate
+                )
+            )
+
+
+        if (
+            request.rx_bandwidth_hz
+            is not None
+        ):
+            applied[
+                "rx_bandwidth_hz"
+            ] = (
+                device.set_rx_bandwidth(
+                    request.rx_bandwidth_hz
+                )
+            )
+
+
+        if (
+            request.tx_bandwidth_hz
+            is not None
+        ):
+            applied[
+                "tx_bandwidth_hz"
+            ] = (
+                device.set_tx_bandwidth(
+                    request.tx_bandwidth_hz
+                )
+            )
+
+
+        if (
+            request.rx_gain_db
+            is not None
+        ):
+            applied[
+                "rx_gain_db"
+            ] = (
+                device.set_rx_gain(
+                    request.rx_gain_db
+                )
+            )
+
+
+        if (
+            request.tx_gain_db
+            is not None
+        ):
+            applied[
+                "tx_gain_db"
+            ] = (
+                device.set_tx_gain(
+                    request.tx_gain_db
+                )
+            )
+
+
+        return {
+            "device_id":
+                device_id,
+
+            "open":
+                device.is_open,
+
+            "applied":
+                applied,
+
+            "state":
+                device.get_runtime_state(),
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+
+@app.post(
+    "/api/devices/{device_id}/close"
+)
+def close_device(
+    device_id: str,
+):
+    try:
+        return (
+            rf_device_manager.close(
+                device_id
+            )
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+
 @app.get("/api/rf/status")
 async def rf_status():
     return runtime_state
@@ -236,17 +491,15 @@ async def rf_start(
     if not device_exists(
         request.device_id
     ):
-        return {
-            "tx": False,
-            "protocol": None,
-            "device_id": None,
-            "config": None,
-            "error": (
+        raise HTTPException(
+            status_code=400,
+            detail=(
                 f"RF device "
                 f"{request.device_id} "
                 f"is not available"
             ),
-        }
+        )
+
 
     runtime_state["tx"] = True
 

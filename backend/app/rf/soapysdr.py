@@ -3,22 +3,63 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import threading
 from typing import Any
 
 
 SOAPY_EXECUTABLE = "SoapySDRUtil"
 
 
+_discovery_lock = threading.Lock()
+
+_probe_cache: dict[
+    str,
+    dict[str, Any],
+] = {}
+
+_open_drivers: set[str] = set()
+
+
+def mark_driver_open(
+    driver: str,
+) -> None:
+    _open_drivers.add(
+        driver
+    )
+
+
+def mark_driver_closed(
+    driver: str,
+) -> None:
+    _open_drivers.discard(
+        driver
+    )
+
+
+def is_driver_open(
+    driver: str,
+) -> bool:
+    return (
+        driver
+        in _open_drivers
+    )
+
+
 def _run_soapy(
     arguments: list[str],
-    timeout: int = 15,
+    timeout: int = 10,
 ) -> tuple[int, str]:
-    executable = shutil.which(SOAPY_EXECUTABLE)
+    executable = shutil.which(
+        SOAPY_EXECUTABLE
+    )
 
     if executable is None:
         return (
             127,
-            "SoapySDRUtil is not installed or not available in PATH.",
+            (
+                "SoapySDRUtil is not installed "
+                "or not available in PATH."
+            ),
         )
 
     try:
@@ -42,7 +83,10 @@ def _run_soapy(
             if part
         )
 
-        return process.returncode, output
+        return (
+            process.returncode,
+            output,
+        )
 
     except subprocess.TimeoutExpired:
         return (
@@ -60,9 +104,13 @@ def _run_soapy(
 def _parse_find_output(
     output: str,
 ) -> list[dict[str, Any]]:
-    devices: list[dict[str, Any]] = []
+    devices: list[
+        dict[str, Any]
+    ] = []
 
-    current_device: dict[str, Any] | None = None
+    current_device: (
+        dict[str, Any] | None
+    ) = None
 
     for line in output.splitlines():
         stripped = line.strip()
@@ -74,10 +122,14 @@ def _parse_find_output(
 
         if found_match:
             if current_device is not None:
-                devices.append(current_device)
+                devices.append(
+                    current_device
+                )
 
             current_device = {
-                "index": int(found_match.group(1)),
+                "index": int(
+                    found_match.group(1)
+                ),
             }
 
             continue
@@ -93,13 +145,24 @@ def _parse_find_output(
         if not key_value_match:
             continue
 
-        key = key_value_match.group(1).strip()
-        value = key_value_match.group(2).strip()
+        key = (
+            key_value_match
+            .group(1)
+            .strip()
+        )
+
+        value = (
+            key_value_match
+            .group(2)
+            .strip()
+        )
 
         current_device[key] = value
 
     if current_device is not None:
-        devices.append(current_device)
+        devices.append(
+            current_device
+        )
 
     return devices
 
@@ -107,8 +170,10 @@ def _parse_find_output(
 def _parse_probe_output(
     output: str,
 ) -> dict[str, Any]:
-    details: dict[str, Any] = {}
-
+    details: dict[
+        str,
+        Any,
+    ] = {}
 
     hardware_version_match = re.search(
         r"\[INFO\]\s+Hardware version\s+(.+)",
@@ -116,7 +181,9 @@ def _parse_probe_output(
     )
 
     if hardware_version_match:
-        details["hardware_version"] = (
+        details[
+            "hardware_version"
+        ] = (
             hardware_version_match
             .group(1)
             .strip()
@@ -129,7 +196,9 @@ def _parse_probe_output(
     )
 
     if clock_match:
-        details["clock"] = (
+        details[
+            "clock"
+        ] = (
             clock_match
             .group(1)
             .strip()
@@ -142,7 +211,9 @@ def _parse_probe_output(
     )
 
     if commit_match:
-        details["soapysx_commit"] = (
+        details[
+            "soapysx_commit"
+        ] = (
             commit_match
             .group(1)
             .strip()
@@ -155,7 +226,9 @@ def _parse_probe_output(
     )
 
     if tag_match:
-        details["soapysx_tag"] = (
+        details[
+            "soapysx_tag"
+        ] = (
             tag_match
             .group(1)
             .strip()
@@ -168,7 +241,9 @@ def _parse_probe_output(
     )
 
     if hardware_match:
-        details["hardware"] = (
+        details[
+            "hardware"
+        ] = (
             hardware_match
             .group(1)
             .strip()
@@ -176,16 +251,24 @@ def _parse_probe_output(
 
 
     channels_match = re.search(
-        r"Channels:\s*(\d+)\s*Rx,\s*(\d+)\s*Tx",
+        (
+            r"Channels:\s*"
+            r"(\d+)\s*Rx,\s*"
+            r"(\d+)\s*Tx"
+        ),
         output,
     )
 
     if channels_match:
-        details["rx_channels"] = int(
+        details[
+            "rx_channels"
+        ] = int(
             channels_match.group(1)
         )
 
-        details["tx_channels"] = int(
+        details[
+            "tx_channels"
+        ] = int(
             channels_match.group(2)
         )
 
@@ -196,8 +279,12 @@ def _parse_probe_output(
     )
 
     if timestamps_match:
-        details["timestamps"] = (
-            timestamps_match.group(1) == "YES"
+        details[
+            "timestamps"
+        ] = (
+            timestamps_match
+            .group(1)
+            == "YES"
         )
 
 
@@ -207,9 +294,12 @@ def _parse_probe_output(
     )
 
     if full_duplex_matches:
-        details["full_duplex"] = all(
+        details[
+            "full_duplex"
+        ] = all(
             value == "YES"
-            for value in full_duplex_matches
+            for value
+            in full_duplex_matches
         )
 
 
@@ -219,25 +309,37 @@ def _parse_probe_output(
     )
 
     if agc_matches:
-        details["agc"] = any(
+        details[
+            "agc"
+        ] = any(
             value == "YES"
-            for value in agc_matches
+            for value
+            in agc_matches
         )
 
 
     gain_ranges = re.findall(
-        r"Full gain range:\s*\[([^\]]+)\]\s*dB",
+        (
+            r"Full gain range:\s*"
+            r"\[([^\]]+)\]\s*dB"
+        ),
         output,
     )
 
     if len(gain_ranges) >= 1:
-        details["rx_gain_range_db"] = (
-            gain_ranges[0].strip()
+        details[
+            "rx_gain_range_db"
+        ] = (
+            gain_ranges[0]
+            .strip()
         )
 
     if len(gain_ranges) >= 2:
-        details["tx_gain_range_db"] = (
-            gain_ranges[1].strip()
+        details[
+            "tx_gain_range_db"
+        ] = (
+            gain_ranges[1]
+            .strip()
         )
 
 
@@ -246,141 +348,260 @@ def _parse_probe_output(
         output,
     )
 
-    if len(sample_rate_matches) >= 1:
-        details["rx_sample_rates"] = (
+    if len(
+        sample_rate_matches
+    ) >= 1:
+        details[
+            "rx_sample_rates"
+        ] = (
             sample_rate_matches[0]
             .strip()
         )
 
-    if len(sample_rate_matches) >= 2:
-        details["tx_sample_rates"] = (
+    if len(
+        sample_rate_matches
+    ) >= 2:
+        details[
+            "tx_sample_rates"
+        ] = (
             sample_rate_matches[1]
             .strip()
         )
-
 
     return details
 
 
 def _probe_device(
     driver: str,
-) -> tuple[dict[str, Any], str | None]:
-    return_code, output = _run_soapy(
-        [
-            f"--probe=driver={driver}",
-        ]
+) -> tuple[
+    dict[str, Any],
+    str | None,
+]:
+    cached = _probe_cache.get(
+        driver
     )
+
+    if cached is not None:
+        return (
+            cached.copy(),
+            None,
+        )
+
+
+    if is_driver_open(
+        driver
+    ):
+        return (
+            {},
+            None,
+        )
+
+
+    return_code, output = (
+        _run_soapy(
+            [
+                (
+                    "--probe="
+                    f"driver={driver}"
+                ),
+            ]
+        )
+    )
+
 
     if return_code != 0:
         return (
             {},
-            output or "Unable to probe SoapySDR device.",
+            (
+                output
+                or
+                "Unable to probe "
+                "SoapySDR device."
+            ),
         )
 
+
+    details = (
+        _parse_probe_output(
+            output
+        )
+    )
+
+
+    _probe_cache[
+        driver
+    ] = details.copy()
+
+
     return (
-        _parse_probe_output(output),
+        details,
         None,
     )
 
 
-def discover_soapy_devices() -> dict[str, Any]:
+def discover_soapy_devices(
+) -> dict[str, Any]:
     executable = shutil.which(
         SOAPY_EXECUTABLE
     )
 
     if executable is None:
         return {
-            "backend": "soapysdr",
-            "available": False,
-            "device_count": 0,
-            "devices": [],
-            "error": (
-                "SoapySDRUtil is not installed "
-                "or not available in PATH."
-            ),
-        }
+            "backend":
+                "soapysdr",
 
+            "available":
+                False,
 
-    return_code, output = _run_soapy(
-        [
-            "--find",
-        ]
-    )
+            "device_count":
+                0,
 
+            "devices":
+                [],
 
-    if return_code != 0:
-        return {
-            "backend": "soapysdr",
-            "available": True,
-            "device_count": 0,
-            "devices": [],
-            "error": (
-                output
-                or "SoapySDR device discovery failed."
-            ),
-        }
-
-
-    discovered = _parse_find_output(
-        output
-    )
-
-
-    devices: list[dict[str, Any]] = []
-
-
-    for device in discovered:
-        index = device.get(
-            "index",
-            len(devices),
-        )
-
-        driver = str(
-            device.get(
-                "driver",
-                "unknown",
-            )
-        )
-
-        label = str(
-            device.get(
-                "label",
-                driver,
-            )
-        )
-
-
-        probe_details: dict[str, Any] = {}
-        probe_error: str | None = None
-
-
-        if driver != "unknown":
-            probe_details, probe_error = (
-                _probe_device(driver)
-            )
-
-
-        devices.append(
-            {
-                "id": f"soapy-{index}",
-                "type": "sdr",
-                "backend": "soapysdr",
-                "driver": driver,
-                "label": label,
-                "available": True,
-                "probe_ok": (
-                    probe_error is None
+            "error":
+                (
+                    "SoapySDRUtil is not "
+                    "installed or not "
+                    "available in PATH."
                 ),
-                "probe_error": probe_error,
-                "capabilities": probe_details,
-            }
+        }
+
+
+    with _discovery_lock:
+        return_code, output = (
+            _run_soapy(
+                [
+                    "--find",
+                ]
+            )
         )
 
 
-    return {
-        "backend": "soapysdr",
-        "available": True,
-        "device_count": len(devices),
-        "devices": devices,
-        "error": None,
-    }
+        if return_code != 0:
+            return {
+                "backend":
+                    "soapysdr",
+
+                "available":
+                    True,
+
+                "device_count":
+                    0,
+
+                "devices":
+                    [],
+
+                "error":
+                    (
+                        output
+                        or
+                        "SoapySDR device "
+                        "discovery failed."
+                    ),
+            }
+
+
+        discovered = (
+            _parse_find_output(
+                output
+            )
+        )
+
+
+        devices: list[
+            dict[str, Any]
+        ] = []
+
+
+        for device in discovered:
+            index = device.get(
+                "index",
+                len(devices),
+            )
+
+            driver = str(
+                device.get(
+                    "driver",
+                    "unknown",
+                )
+            )
+
+            label = str(
+                device.get(
+                    "label",
+                    driver,
+                )
+            )
+
+
+            probe_details: dict[
+                str,
+                Any,
+            ] = {}
+
+            probe_error: (
+                str | None
+            ) = None
+
+
+            if driver != "unknown":
+                (
+                    probe_details,
+                    probe_error,
+                ) = _probe_device(
+                    driver
+                )
+
+
+            devices.append(
+                {
+                    "id":
+                        f"soapy-{index}",
+
+                    "type":
+                        "sdr",
+
+                    "backend":
+                        "soapysdr",
+
+                    "driver":
+                        driver,
+
+                    "label":
+                        label,
+
+                    "available":
+                        True,
+
+                    "probe_ok":
+                        (
+                            probe_error
+                            is None
+                        ),
+
+                    "probe_error":
+                        probe_error,
+
+                    "capabilities":
+                        probe_details,
+                }
+            )
+
+
+        return {
+            "backend":
+                "soapysdr",
+
+            "available":
+                True,
+
+            "device_count":
+                len(devices),
+
+            "devices":
+                devices,
+
+            "error":
+                None,
+        }
