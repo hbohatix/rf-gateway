@@ -16,6 +16,9 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 
 VENV_DIR="$BACKEND_DIR/.venv"
 
+MMDVM_IQ_DIR="$PROJECT_DIR/third_party/MMDVM-IQ"
+MMDVM_HOST_DIR="$PROJECT_DIR/third_party/MMDVM-Host"
+
 
 echo
 echo "============================================================"
@@ -120,12 +123,45 @@ $SUDO apt-get install -y \
     python3-pip \
     python3-venv \
     python3-dev \
+    python3-soapysdr \
     build-essential \
     pkg-config \
     ffmpeg \
     usbutils \
     pciutils \
-    jq
+    jq \
+    libsoapysdr-dev \
+    soapysdr-tools \
+    libmosquitto-dev \
+    mosquitto \
+    mosquitto-clients \
+    nlohmann-json3-dev
+
+
+# ------------------------------------------------------------
+# MQTT
+# ------------------------------------------------------------
+
+echo
+echo "Starting Mosquitto MQTT broker..."
+echo
+
+
+$SUDO systemctl enable --now mosquitto
+
+
+if systemctl is-active --quiet mosquitto; then
+
+    echo "Mosquitto:"
+    echo "  active"
+
+else
+
+    echo "ERROR:"
+    echo "Mosquitto failed to start."
+    exit 1
+
+fi
 
 
 # ------------------------------------------------------------
@@ -147,8 +183,8 @@ if command -v node >/dev/null 2>&1; then
     echo "Found Node.js:"
     echo "  $(node --version)"
 
-    if [ "$NODE_MAJOR" -lt 22 ]; then
-        echo "Node.js is too old."
+    if [ "$NODE_MAJOR" -ne 22 ]; then
+        echo "RF Gateway expects Node.js 22.x."
         INSTALL_NODE=1
     fi
 
@@ -166,7 +202,8 @@ if [ "$INSTALL_NODE" -eq 1 ]; then
     echo "Installing Node.js 22.x..."
     echo
 
-    curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO -E bash -
+    curl -fsSL https://deb.nodesource.com/setup_22.x \
+        | $SUDO -E bash -
 
     $SUDO apt-get install -y nodejs
 
@@ -183,17 +220,69 @@ npm --version
 
 
 # ------------------------------------------------------------
+# Git submodules
+# ------------------------------------------------------------
+
+echo
+echo "Initializing Git submodules..."
+echo
+
+
+cd "$PROJECT_DIR"
+
+
+git submodule sync --recursive
+
+
+git submodule update \
+    --init \
+    --recursive
+
+
+# ------------------------------------------------------------
 # Python virtual environment
 # ------------------------------------------------------------
 
 echo
-echo "Creating Python virtual environment..."
+echo "Preparing Python virtual environment..."
 echo
+
+
+RECREATE_VENV=0
 
 
 if [ ! -d "$VENV_DIR" ]; then
 
-    python3 -m venv "$VENV_DIR"
+    RECREATE_VENV=1
+
+elif [ ! -f "$VENV_DIR/pyvenv.cfg" ]; then
+
+    RECREATE_VENV=1
+
+elif ! grep -q \
+    '^include-system-site-packages = true$' \
+    "$VENV_DIR/pyvenv.cfg"; then
+
+    echo
+    echo "Existing Python virtual environment does not use"
+    echo "system site packages."
+    echo
+    echo "It will be recreated so the backend can access"
+    echo "Debian's python3-soapysdr package."
+    echo
+
+    RECREATE_VENV=1
+
+fi
+
+
+if [ "$RECREATE_VENV" -eq 1 ]; then
+
+    rm -rf "$VENV_DIR"
+
+    python3 -m venv \
+        --system-site-packages \
+        "$VENV_DIR"
 
 fi
 
@@ -207,7 +296,11 @@ echo "Upgrading pip..."
 echo
 
 
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install \
+    --upgrade \
+    pip \
+    setuptools \
+    wheel
 
 
 # ------------------------------------------------------------
@@ -230,7 +323,110 @@ if [ ! -f "$BACKEND_DIR/requirements.txt" ]; then
 fi
 
 
-pip install -r "$BACKEND_DIR/requirements.txt"
+python -m pip install \
+    -r "$BACKEND_DIR/requirements.txt"
+
+
+# ------------------------------------------------------------
+# Python SoapySDR test
+# ------------------------------------------------------------
+
+echo
+echo "Checking Python SoapySDR binding..."
+echo
+
+
+python - <<'PY'
+import SoapySDR
+
+print("SoapySDR Python binding:")
+print(f"  {SoapySDR.__file__}")
+PY
+
+
+deactivate
+
+
+# ------------------------------------------------------------
+# MMDVM-IQ
+# ------------------------------------------------------------
+
+echo
+echo "Building MMDVM-IQ..."
+echo
+
+
+if [ ! -d "$MMDVM_IQ_DIR" ]; then
+
+    echo "ERROR:"
+    echo "Missing MMDVM-IQ submodule:"
+    echo "  $MMDVM_IQ_DIR"
+
+    exit 1
+
+fi
+
+
+cd "$MMDVM_IQ_DIR"
+
+
+make -j"$(nproc)"
+
+
+if [ ! -x "$MMDVM_IQ_DIR/MMDVM-IQ" ]; then
+
+    echo "ERROR:"
+    echo "MMDVM-IQ binary was not created."
+
+    exit 1
+
+fi
+
+
+echo
+echo "MMDVM-IQ version:"
+"$MMDVM_IQ_DIR/MMDVM-IQ" --version
+
+
+# ------------------------------------------------------------
+# MMDVM-Host
+# ------------------------------------------------------------
+
+echo
+echo "Building MMDVM-Host..."
+echo
+
+
+if [ ! -d "$MMDVM_HOST_DIR" ]; then
+
+    echo "ERROR:"
+    echo "Missing MMDVM-Host submodule:"
+    echo "  $MMDVM_HOST_DIR"
+
+    exit 1
+
+fi
+
+
+cd "$MMDVM_HOST_DIR"
+
+
+make -j"$(nproc)"
+
+
+if [ ! -x "$MMDVM_HOST_DIR/MMDVM-Host" ]; then
+
+    echo "ERROR:"
+    echo "MMDVM-Host binary was not created."
+
+    exit 1
+
+fi
+
+
+echo
+echo "MMDVM-Host version:"
+"$MMDVM_HOST_DIR/MMDVM-Host" --version
 
 
 # ------------------------------------------------------------
@@ -281,6 +477,38 @@ ffmpeg -version | head -n 1
 
 
 # ------------------------------------------------------------
+# SoapySDR check
+# ------------------------------------------------------------
+
+echo
+echo "Checking SoapySDR..."
+echo
+
+
+SoapySDRUtil --info || true
+
+
+echo
+echo "Detected SoapySDR devices:"
+echo
+
+
+SoapySDRUtil --find || true
+
+
+# ------------------------------------------------------------
+# MQTT check
+# ------------------------------------------------------------
+
+echo
+echo "Checking MQTT listener..."
+echo
+
+
+ss -ltn | grep ':1883' || true
+
+
+# ------------------------------------------------------------
 # USB devices
 # ------------------------------------------------------------
 
@@ -293,17 +521,49 @@ lsusb || true
 
 
 # ------------------------------------------------------------
+# PCI devices
+# ------------------------------------------------------------
+
+echo
+echo "Detected PCI devices:"
+echo
+
+
+lspci || true
+
+
+# ------------------------------------------------------------
 # Finished
 # ------------------------------------------------------------
+
+cd "$PROJECT_DIR"
+
 
 echo
 echo "============================================================"
 echo " RF Gateway installation completed"
 echo "============================================================"
 echo
+
 echo "Backend environment:"
 echo
 echo "  source backend/.venv/bin/activate"
+
+echo
+echo "MMDVM-IQ:"
+echo
+echo "  third_party/MMDVM-IQ/MMDVM-IQ"
+
+echo
+echo "MMDVM-Host:"
+echo
+echo "  third_party/MMDVM-Host/MMDVM-Host"
+
+echo
+echo "MMDVM configuration:"
+echo
+echo "  config/mmdvm/"
+
 echo
 echo "Development startup:"
 echo
