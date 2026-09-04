@@ -6,6 +6,7 @@ import {
 import "./App.css";
 
 import CalibrationPanel from "./components/CalibrationPanel";
+import SourcesPanel from "./components/SourcesPanel";
 import ProtocolSelector from "./components/ProtocolSelector";
 import RFDeviceCard from "./components/RFDeviceCard";
 
@@ -772,6 +773,15 @@ function App() {
   ] =
     useState(
       false
+    );
+
+
+  const [
+    sourceCount,
+    setSourceCount,
+  ] =
+    useState(
+      0
     );
 
 
@@ -2305,11 +2315,11 @@ function App() {
           </h2>
 
           <strong>
-            0
+            {sourceCount}
           </strong>
 
           <p>
-            Internet audio streams
+            Internet audio sources
           </p>
         </section>
 
@@ -2363,6 +2373,13 @@ function App() {
             Controlled RF diagnostics
           </p>
         </section>
+
+
+        <SourcesPanel
+          onCountChange={
+            setSourceCount
+          }
+        />
 
 
         <section className="rf-panel">
