@@ -7,6 +7,7 @@ import "./App.css";
 
 import CalibrationPanel from "./components/CalibrationPanel";
 import SourcesPanel from "./components/SourcesPanel";
+import RoutesPanel from "./components/RoutesPanel";
 import ProtocolSelector from "./components/ProtocolSelector";
 import RFDeviceCard from "./components/RFDeviceCard";
 
@@ -779,6 +780,15 @@ function App() {
   const [
     sourceCount,
     setSourceCount,
+  ] =
+    useState(
+      0
+    );
+
+
+  const [
+    routeCount,
+    setRouteCount,
   ] =
     useState(
       0
@@ -2347,13 +2357,11 @@ function App() {
           </h2>
 
           <strong>
-            {runtimeActive
-              ? 1
-              : 0}
+            {routeCount}
           </strong>
 
           <p>
-            Active RF runtime
+            Configured source-to-RF routes
           </p>
         </section>
 
@@ -2380,6 +2388,24 @@ function App() {
             setSourceCount
           }
         />
+
+
+        <div
+          style={{
+            gridColumn:
+              "1 / -1",
+          }}
+        >
+          <RoutesPanel
+            apiBaseUrl={
+              API_BASE_URL
+            }
+
+            onRoutesChanged={
+              setRouteCount
+            }
+          />
+        </div>
 
 
         <section className="rf-panel">

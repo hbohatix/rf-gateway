@@ -5,6 +5,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app.broadcastify_worker import (
+    broadcastify_worker_manager,
+)
+
+from app.call_processor import (
+    call_processor_manager,
+)
+
 from app.config_store import (
     mode_config_store,
 )
@@ -27,6 +35,10 @@ from app.sources import (
     router as sources_router,
 )
 
+from app.routes import (
+    router as routes_router,
+)
+
 
 API_VERSION = "0.11.0"
 
@@ -44,6 +56,9 @@ async def lifespan(
     app: FastAPI,
 ):
     yield
+
+    broadcastify_worker_manager.stop_all()
+    call_processor_manager.stop_all()
 
     mmdvm_process_manager.stop()
     rf_device_manager.close_all()
@@ -72,6 +87,10 @@ app.add_middleware(
 
 app.include_router(
     sources_router
+)
+
+app.include_router(
+    routes_router
 )
 
 

@@ -9,7 +9,12 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from datetime import datetime, timezone
+from copy import deepcopy
+from datetime import (
+    datetime,
+    timezone,
+)
+
 from pathlib import Path
 
 from fastapi import (
@@ -22,6 +27,10 @@ from pydantic import (
     Field,
 )
 
+from app.broadcastify_calls_client import (
+    broadcastify_calls_client,
+)
+
 
 router = APIRouter(
     prefix="/api/sources",
@@ -30,9 +39,13 @@ router = APIRouter(
 
 
 DATA_DIR = (
-    Path(__file__).resolve().parent.parent
+    Path(__file__)
+    .resolve()
+    .parent
+    .parent
     / "data"
 )
+
 
 SOURCES_FILE = (
     DATA_DIR
@@ -103,7 +116,9 @@ class SourceCreateRequest(
     )
 
     type: str = Field(
-        default="broadcastify_calls",
+        default=(
+            "broadcastify_calls"
+        ),
     )
 
     url: str = Field(
@@ -132,18 +147,20 @@ def ensure_storage() -> None:
         exist_ok=True,
     )
 
-    if not SOURCES_FILE.exists():
-        SOURCES_FILE.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "sources": [],
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
+    if SOURCES_FILE.exists():
+        return
+
+    SOURCES_FILE.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "sources": [],
+            },
+            indent=2,
         )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def load_store() -> dict:
@@ -162,8 +179,11 @@ def load_store() -> dict:
             json.JSONDecodeError,
         ) as error:
             raise RuntimeError(
-                "Unable to read "
-                f"sources store: {error}"
+                (
+                    "Unable to read "
+                    "sources store: "
+                    f"{error}"
+                )
             ) from error
 
 
@@ -173,7 +193,8 @@ def save_store(
     ensure_storage()
 
     temporary_file = (
-        SOURCES_FILE.with_suffix(
+        SOURCES_FILE
+        .with_suffix(
             ".json.tmp"
         )
     )
@@ -223,6 +244,7 @@ def parse_broadcastify_playlist_url(
         )
     )
 
+
     if (
         parsed.scheme
         not in (
@@ -231,23 +253,30 @@ def parse_broadcastify_playlist_url(
         )
     ):
         raise ValueError(
-            "Broadcastify URL must use "
-            "HTTP or HTTPS"
+            (
+                "Broadcastify URL "
+                "must use HTTP or HTTPS"
+            )
         )
+
 
     hostname = (
         parsed.hostname
         or ""
     ).lower()
 
+
     if (
         hostname
         not in BROADCASTIFY_HOSTS
     ):
         raise ValueError(
-            "URL is not a Broadcastify "
-            "playlist URL"
+            (
+                "URL is not a Broadcastify "
+                "playlist URL"
+            )
         )
+
 
     if (
         not parsed.path.startswith(
@@ -255,15 +284,19 @@ def parse_broadcastify_playlist_url(
         )
     ):
         raise ValueError(
-            "Expected Broadcastify Calls "
-            "playlist URL"
+            (
+                "Expected Broadcastify Calls "
+                "playlist URL"
+            )
         )
+
 
     query = (
         urllib.parse.parse_qs(
             parsed.query
         )
     )
+
 
     playlist_uuid = (
         query.get(
@@ -272,19 +305,26 @@ def parse_broadcastify_playlist_url(
         )[0]
     )
 
+
     if not playlist_uuid:
         raise ValueError(
-            "Broadcastify playlist URL "
-            "does not contain uuid"
+            (
+                "Broadcastify playlist URL "
+                "does not contain uuid"
+            )
         )
+
 
     if not UUID_PATTERN.fullmatch(
         playlist_uuid
     ):
         raise ValueError(
-            "Invalid Broadcastify "
-            "playlist UUID"
+            (
+                "Invalid Broadcastify "
+                "playlist UUID"
+            )
         )
+
 
     requested_view = (
         query.get(
@@ -294,6 +334,7 @@ def parse_broadcastify_playlist_url(
         or
         "list"
     )
+
 
     if (
         requested_view
@@ -306,12 +347,14 @@ def parse_broadcastify_playlist_url(
             "list"
         )
 
+
     canonical_url = (
         "https://www.broadcastify.com"
         "/calls/playlists/"
         f"?uuid={playlist_uuid}"
         f"&view={requested_view}"
     )
+
 
     return {
         "provider":
@@ -340,10 +383,12 @@ def extract_page_name(
         )
     )
 
+
     if title_match:
         title = normalize_text(
             title_match.group(1)
         )
+
 
         for suffix in (
             " - Broadcastify",
@@ -354,10 +399,13 @@ def extract_page_name(
             ):
                 title = (
                     title[
-                        :-len(suffix)
+                        :-len(
+                            suffix
+                        )
                     ]
                     .strip()
                 )
+
 
         if (
             title
@@ -370,6 +418,7 @@ def extract_page_name(
         ):
             return title
 
+
     for match in (
         H1_PATTERN.finditer(
             page
@@ -378,6 +427,7 @@ def extract_page_name(
         heading = normalize_text(
             match.group(1)
         )
+
 
         if heading.lower().startswith(
             "playlist:"
@@ -390,8 +440,10 @@ def extract_page_name(
                 .strip()
             )
 
+
         if heading:
             return heading
+
 
     return None
 
@@ -404,15 +456,20 @@ def fetch_playlist_page(
             canonical_url,
             headers={
                 "User-Agent":
-                    "RF-Gateway/0.11 "
-                    "(Broadcastify Source Probe)",
+                    (
+                        "RF-Gateway/0.11 "
+                        "(Broadcastify Source Probe)"
+                    ),
 
                 "Accept":
-                    "text/html,"
-                    "application/xhtml+xml",
+                    (
+                        "text/html,"
+                        "application/xhtml+xml"
+                    ),
             },
         )
     )
+
 
     try:
         with urllib.request.urlopen(
@@ -431,9 +488,11 @@ def fetch_playlist_page(
                 response.geturl()
             )
 
+
     except urllib.error.HTTPError as error:
         return {
-            "reachable": False,
+            "reachable":
+                False,
 
             "http_status":
                 error.code,
@@ -448,9 +507,11 @@ def fetch_playlist_page(
                 f"HTTP {error.code}",
         }
 
+
     except urllib.error.URLError as error:
         return {
-            "reachable": False,
+            "reachable":
+                False,
 
             "http_status":
                 None,
@@ -467,9 +528,11 @@ def fetch_playlist_page(
                 ),
         }
 
+
     except TimeoutError:
         return {
-            "reachable": False,
+            "reachable":
+                False,
 
             "http_status":
                 None,
@@ -481,13 +544,17 @@ def fetch_playlist_page(
                 canonical_url,
 
             "error":
-                "Connection timed out",
+                (
+                    "Connection timed out"
+                ),
         }
+
 
     page = raw.decode(
         "utf-8",
         errors="replace",
     )
+
 
     page_name = (
         extract_page_name(
@@ -495,12 +562,15 @@ def fetch_playlist_page(
         )
     )
 
+
     lower_page = (
         page.lower()
     )
 
+
     looks_like_playlist = (
-        "playlist:" in lower_page
+        "playlist:"
+        in lower_page
         or
         "broadcastify calls"
         in lower_page
@@ -508,6 +578,7 @@ def fetch_playlist_page(
         "calls/playlists"
         in lower_page
     )
+
 
     return {
         "reachable":
@@ -531,10 +602,204 @@ def fetch_playlist_page(
                 None
                 if looks_like_playlist
                 else
-                "Page did not look like "
-                "a Broadcastify Calls playlist"
+                (
+                    "Page did not look like "
+                    "a Broadcastify Calls "
+                    "playlist"
+                )
             ),
     }
+
+
+def get_audio_api_status() -> dict:
+    status = (
+        broadcastify_calls_client
+        .configuration_status()
+    )
+
+
+    jwt_configured = bool(
+        status.get(
+            "configured",
+            False,
+        )
+        and
+        status.get(
+            "jwt_auth_configured",
+            False,
+        )
+    )
+
+
+    jwt_generation_ready = False
+
+    jwt_generation_error = None
+
+
+    if jwt_configured:
+        try:
+            token = (
+                broadcastify_calls_client
+                .mint_jwt()
+            )
+
+
+            jwt_generation_ready = bool(
+                len(
+                    token.split(
+                        "."
+                    )
+                )
+                == 3
+            )
+
+
+            if not jwt_generation_ready:
+                jwt_generation_error = (
+                    "Generated JWT does not "
+                    "contain three parts"
+                )
+
+
+        except Exception as error:
+            jwt_generation_error = str(
+                error
+            )
+
+
+    endpoint_templates_configured = bool(
+        status.get(
+            "playlist_endpoint_configured",
+            False,
+        )
+        and
+        status.get(
+            "live_calls_endpoint_configured",
+            False,
+        )
+        and
+        status.get(
+            "call_endpoint_configured",
+            False,
+        )
+    )
+
+
+    live_playback_configured = bool(
+        jwt_generation_ready
+        and
+        endpoint_templates_configured
+    )
+
+
+    return {
+        **status,
+
+        "jwt_configured":
+            jwt_configured,
+
+        "jwt_generation_ready":
+            jwt_generation_ready,
+
+        "jwt_generation_error":
+            jwt_generation_error,
+
+        "endpoint_templates_configured":
+            endpoint_templates_configured,
+
+        "live_playback_configured":
+            live_playback_configured,
+    }
+
+
+def get_playback_state(
+    audio_api: dict,
+) -> str:
+    if audio_api.get(
+        "live_playback_configured",
+        False,
+    ):
+        return "configured"
+
+
+    if audio_api.get(
+        "jwt_generation_error"
+    ):
+        return "jwt_error"
+
+
+    if audio_api.get(
+        "jwt_generation_ready",
+        False,
+    ):
+        return "endpoints_not_configured"
+
+
+    return "not_configured"
+
+
+def apply_current_audio_api_status(
+    source: dict,
+) -> dict:
+    current = deepcopy(
+        source
+    )
+
+
+    probe = current.get(
+        "probe"
+    )
+
+
+    if not isinstance(
+        probe,
+        dict,
+    ):
+        probe = {}
+
+
+    audio_api = (
+        get_audio_api_status()
+    )
+
+
+    probe[
+        "audio_api_configured"
+    ] = bool(
+        audio_api.get(
+            "live_playback_configured",
+            False,
+        )
+    )
+
+
+    probe[
+        "playback_state"
+    ] = (
+        get_playback_state(
+            audio_api
+        )
+    )
+
+
+    probe[
+        "playback_model"
+    ] = (
+        "discrete_calls"
+    )
+
+
+    probe[
+        "audio_api"
+    ] = audio_api
+
+
+    current[
+        "probe"
+    ] = probe
+
+
+    return current
 
 
 def probe_broadcastify(
@@ -546,6 +811,7 @@ def probe_broadcastify(
         )
     )
 
+
     page_probe = (
         fetch_playlist_page(
             parsed[
@@ -553,6 +819,20 @@ def probe_broadcastify(
             ]
         )
     )
+
+
+    audio_api = (
+        get_audio_api_status()
+    )
+
+
+    audio_api_configured = bool(
+        audio_api.get(
+            "live_playback_configured",
+            False,
+        )
+    )
+
 
     return {
         **parsed,
@@ -583,13 +863,18 @@ def probe_broadcastify(
             ],
 
         "audio_api_configured":
-            False,
+            audio_api_configured,
 
         "playback_state":
-            "not_configured",
+            get_playback_state(
+                audio_api
+            ),
 
         "playback_model":
             "discrete_calls",
+
+        "audio_api":
+            audio_api,
 
         "probed_at":
             utc_now(),
@@ -603,6 +888,7 @@ def get_source_or_404(
         load_store()
     )
 
+
     for source in store.get(
         "sources",
         [],
@@ -613,7 +899,12 @@ def get_source_or_404(
             )
             == source_id
         ):
-            return source
+            return (
+                apply_current_audio_api_status(
+                    source
+                )
+            )
+
 
     raise HTTPException(
         status_code=404,
@@ -627,12 +918,14 @@ def list_sources():
         load_store()
     )
 
+
     sources = (
         store.get(
             "sources",
             [],
         )
     )
+
 
     return {
         "version":
@@ -647,7 +940,31 @@ def list_sources():
             ),
 
         "sources":
-            sources,
+            [
+                apply_current_audio_api_status(
+                    source
+                )
+                for source
+                in sources
+            ],
+    }
+
+
+@router.get(
+    "/broadcastify/api-status"
+)
+def broadcastify_api_status():
+    status = (
+        get_audio_api_status()
+    )
+
+
+    return {
+        "provider":
+            "broadcastify",
+
+        "client_api":
+            status,
     }
 
 
@@ -663,6 +980,7 @@ def probe_broadcastify_endpoint(
             request.url
         )
 
+
     except ValueError as error:
         raise HTTPException(
             status_code=400,
@@ -677,7 +995,8 @@ def create_source(
 ):
     if (
         request.type
-        != "broadcastify_calls"
+        !=
+        "broadcastify_calls"
     ):
         raise HTTPException(
             status_code=400,
@@ -687,6 +1006,7 @@ def create_source(
             ),
         )
 
+
     try:
         probe = (
             probe_broadcastify(
@@ -694,17 +1014,21 @@ def create_source(
             )
         )
 
+
     except ValueError as error:
         raise HTTPException(
             status_code=400,
             detail=str(error),
         ) from error
 
+
     now = utc_now()
+
 
     name = (
         request.name.strip()
     )
+
 
     if (
         not name
@@ -714,8 +1038,11 @@ def create_source(
         )
     ):
         name = (
-            probe["page_name"]
+            probe[
+                "page_name"
+            ]
         )
+
 
     source = {
         "id":
@@ -757,9 +1084,11 @@ def create_source(
             probe,
     }
 
+
     store = (
         load_store()
     )
+
 
     store.setdefault(
         "sources",
@@ -768,9 +1097,11 @@ def create_source(
         source
     )
 
+
     save_store(
         store
     )
+
 
     return source
 
@@ -787,12 +1118,16 @@ def probe_existing_source(
         )
     )
 
+
     try:
         probe = (
             probe_broadcastify(
-                source["url"]
+                source[
+                    "url"
+                ]
             )
         )
+
 
     except ValueError as error:
         raise HTTPException(
@@ -800,9 +1135,11 @@ def probe_existing_source(
             detail=str(error),
         ) from error
 
+
     store = (
         load_store()
     )
+
 
     for item in store.get(
         "sources",
@@ -814,19 +1151,22 @@ def probe_existing_source(
             )
             == source_id
         ):
-            item["probe"] = (
-                probe
-            )
+            item[
+                "probe"
+            ] = probe
 
-            item["updated_at"] = (
-                utc_now()
-            )
+            item[
+                "updated_at"
+            ] = utc_now()
+
 
             save_store(
                 store
             )
 
+
             return item
+
 
     raise HTTPException(
         status_code=404,
@@ -844,12 +1184,14 @@ def delete_source(
         load_store()
     )
 
+
     sources = (
         store.get(
             "sources",
             [],
         )
     )
+
 
     remaining = [
         source
@@ -860,25 +1202,36 @@ def delete_source(
         != source_id
     ]
 
+
     if (
-        len(remaining)
+        len(
+            remaining
+        )
         ==
-        len(sources)
+        len(
+            sources
+        )
     ):
         raise HTTPException(
             status_code=404,
             detail="Source not found",
         )
 
-    store["sources"] = (
-        remaining
-    )
+
+    store[
+        "sources"
+    ] = remaining
+
 
     save_store(
         store
     )
 
+
     return {
-        "deleted": True,
-        "id": source_id,
+        "deleted":
+            True,
+
+        "id":
+            source_id,
     }

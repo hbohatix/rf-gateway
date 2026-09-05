@@ -10,6 +10,23 @@ SUPPORTED_RUNTIME_PROTOCOLS = {
 }
 
 
+P25_NETWORK_LOCAL_ADDRESS = (
+    "127.0.0.1"
+)
+
+P25_NETWORK_LOCAL_PORT = (
+    32010
+)
+
+P25_NETWORK_GATEWAY_ADDRESS = (
+    "127.0.0.1"
+)
+
+P25_NETWORK_GATEWAY_PORT = (
+    42020
+)
+
+
 def _require_frequency(
     settings: dict[str, Any],
 ) -> int:
@@ -278,6 +295,16 @@ def render_mmdvm_host_config(
                     "# Requested P25 Modulation: "
                     f"{settings['modulation']}"
                 ),
+                (
+                    "# P25 Network Local: "
+                    f"{P25_NETWORK_LOCAL_ADDRESS}:"
+                    f"{P25_NETWORK_LOCAL_PORT}"
+                ),
+                (
+                    "# P25 Network Gateway: "
+                    f"{P25_NETWORK_GATEWAY_ADDRESS}:"
+                    f"{P25_NETWORK_GATEWAY_PORT}"
+                ),
             ]
         )
 
@@ -387,7 +414,12 @@ Enable=0
 Enable=0
 
 [P25 Network]
-Enable=0
+Enable={p25_enable}
+LocalAddress={P25_NETWORK_LOCAL_ADDRESS}
+LocalPort={P25_NETWORK_LOCAL_PORT}
+GatewayAddress={P25_NETWORK_GATEWAY_ADDRESS}
+GatewayPort={P25_NETWORK_GATEWAY_PORT}
+Debug=0
 """
 
     return (
