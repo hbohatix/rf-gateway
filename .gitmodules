@@ -4,3 +4,6 @@
 [submodule "third_party/MMDVM-Host"]
 	path = third_party/MMDVM-Host
 	url = https://github.com/g4klx/MMDVM-Host.git
+[submodule "third_party/imbe_vocoder"]
+	path = third_party/imbe_vocoder
+	url = https://github.com/nostar/imbe_vocoder.git
