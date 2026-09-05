@@ -6,6 +6,8 @@ from threading import Event, RLock, Thread
 from typing import Any
 
 from app.audio_bridge import (
+    AudioBridgeError,
+    bridge_decoded_audio,
     get_audio_bridge_capability,
 )
 
@@ -281,6 +283,26 @@ class CallProcessor:
             | None
         ) = None
 
+        self._last_audio_bridge_at: (
+            str
+            | None
+        ) = None
+
+        self._last_completed_call_at: (
+            str
+            | None
+        ) = None
+
+        self._last_completed_call_key: (
+            str
+            | None
+        ) = None
+
+        self._last_audio_bridge_result: (
+            dict[str, Any]
+            | None
+        ) = None
+
         self._current_call_key: (
             str
             | None
@@ -340,6 +362,10 @@ class CallProcessor:
         self._audio_download_count = 0
 
         self._audio_decode_count = 0
+
+        self._audio_bridge_count = 0
+
+        self._calls_completed = 0
 
         self._loop_count = 0
 
@@ -1025,6 +1051,232 @@ class CallProcessor:
         return True
 
 
+    def _bridge_current_audio(
+        self,
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            if (
+                self._current_call_error_stage
+                is not None
+            ):
+                return None
+
+            decoded_audio = (
+                self._current_decoded_audio
+            )
+
+        if decoded_audio is None:
+            self._record_call_error(
+                stage=(
+                    "audio_bridge"
+                ),
+                message=(
+                    "No decoded PCM is available "
+                    "for the audio bridge"
+                ),
+            )
+
+            return None
+
+        if (
+            self._stop_event
+            .is_set()
+        ):
+            return None
+
+        self._set_state(
+            "bridging_audio"
+        )
+
+        try:
+            result = (
+                bridge_decoded_audio(
+                    self.protocol,
+                    decoded_audio,
+                )
+            )
+
+        except AudioBridgeError as error:
+            self._record_call_error(
+                stage=(
+                    "audio_bridge"
+                ),
+                message=str(
+                    error
+                ),
+            )
+
+            return None
+
+        except Exception as error:
+            self._record_call_error(
+                stage=(
+                    "audio_bridge"
+                ),
+                message=(
+                    "Unexpected audio bridge "
+                    f"error: {error}"
+                ),
+            )
+
+            return None
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            self._record_call_error(
+                stage=(
+                    "audio_bridge"
+                ),
+                message=(
+                    "Audio bridge returned "
+                    "an invalid result"
+                ),
+            )
+
+            return None
+
+        with self._lock:
+            self._audio_bridge_count += 1
+
+            self._last_audio_bridge_at = (
+                utc_now()
+            )
+
+            self._last_audio_bridge_result = (
+                deepcopy(
+                    result
+                )
+            )
+
+            self._touch()
+
+        return deepcopy(
+            result
+        )
+
+
+    def _complete_current_call(
+        self,
+        queue: Any,
+    ) -> bool:
+        with self._lock:
+            current_call_key = (
+                self._current_call_key
+            )
+
+        if not current_call_key:
+            self._record_call_error(
+                stage=(
+                    "queue_dequeue"
+                ),
+                message=(
+                    "Current call does not "
+                    "have a queue key"
+                ),
+            )
+
+            return False
+
+        pending = (
+            queue.peek()
+        )
+
+        if pending is None:
+            self._record_call_error(
+                stage=(
+                    "queue_dequeue"
+                ),
+                message=(
+                    "Call queue became empty "
+                    "before completion"
+                ),
+            )
+
+            return False
+
+        pending_call_key = (
+            get_call_key(
+                pending
+            )
+        )
+
+        if (
+            pending_call_key
+            != current_call_key
+        ):
+            self._record_call_error(
+                stage=(
+                    "queue_dequeue"
+                ),
+                message=(
+                    "Call queue head changed "
+                    "before completion: "
+                    f"expected {current_call_key}, "
+                    f"found {pending_call_key}"
+                ),
+            )
+
+            return False
+
+        completed = (
+            queue.pop_next()
+        )
+
+        if completed is None:
+            self._record_call_error(
+                stage=(
+                    "queue_dequeue"
+                ),
+                message=(
+                    "Call queue became empty "
+                    "during completion"
+                ),
+            )
+
+            return False
+
+        completed_call_key = (
+            get_call_key(
+                completed
+            )
+        )
+
+        if (
+            completed_call_key
+            != current_call_key
+        ):
+            self._record_call_error(
+                stage=(
+                    "queue_dequeue"
+                ),
+                message=(
+                    "Dequeued call does not match "
+                    "the transmitted call: "
+                    f"expected {current_call_key}, "
+                    f"got {completed_call_key}"
+                ),
+            )
+
+            return False
+
+        with self._lock:
+            self._calls_completed += 1
+
+            self._last_completed_call_key = (
+                current_call_key
+            )
+
+            self._last_completed_call_at = (
+                utc_now()
+            )
+
+            self._touch()
+
+        return True
+
+
     def _run(
         self,
     ) -> None:
@@ -1151,27 +1403,32 @@ class CallProcessor:
 
                     continue
 
-                #
-                # We now have:
-                #
-                # - Broadcastify call metadata
-                # - encoded audio
-                # - decoded PCM 8 kHz mono s16le
-                #
-                # Do not dequeue yet.
-                #
-                # Still missing:
-                #
-                # - vocoder
-                # - protocol framing
-                # - RF hand-off
-                #
-                self._set_state(
-                    "processor_not_implemented"
+                bridge_result = (
+                    self._bridge_current_audio()
                 )
 
-                self._stop_event.wait(
-                    self.poll_interval_seconds
+                if bridge_result is None:
+                    self._stop_event.wait(
+                        self.poll_interval_seconds
+                    )
+
+                    continue
+
+                if not (
+                    self._complete_current_call(
+                        queue
+                    )
+                ):
+                    self._stop_event.wait(
+                        self.poll_interval_seconds
+                    )
+
+                    continue
+
+                self._clear_current_call()
+
+                self._set_state(
+                    "call_completed"
                 )
 
             except Exception as error:
@@ -1374,6 +1631,12 @@ class CallProcessor:
                 "audio_decode_count":
                     self._audio_decode_count,
 
+                "audio_bridge_count":
+                    self._audio_bridge_count,
+
+                "calls_completed":
+                    self._calls_completed,
+
                 "current_call_key":
                     self._current_call_key,
 
@@ -1431,6 +1694,20 @@ class CallProcessor:
 
                 "last_audio_decode_at":
                     self._last_audio_decode_at,
+
+                "last_audio_bridge_at":
+                    self._last_audio_bridge_at,
+
+                "last_completed_call_at":
+                    self._last_completed_call_at,
+
+                "last_completed_call_key":
+                    self._last_completed_call_key,
+
+                "last_audio_bridge_result":
+                    deepcopy(
+                        self._last_audio_bridge_result
+                    ),
 
                 "started_at":
                     self._started_at,
