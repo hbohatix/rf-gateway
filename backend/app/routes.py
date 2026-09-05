@@ -1229,57 +1229,137 @@ def start_route(
         source,
     )
 
-    #
-    # IMPORTANT:
-    #
-    # Source worker and CallProcessor
-    # may now both be running.
-    #
-    # We intentionally DO NOT call:
-    #
-    # route_runtime_manager.mark_running()
-    #
-    # yet.
-    #
-    # CallProcessor currently only:
-    #
-    # queue.peek()
-    # -> inspect call
-    # -> inspect audio bridge
-    #
-    # The following stages are still
-    # not connected:
-    #
-    # queued call
-    # -> Broadcastify audio download
-    # -> audio decode
-    # -> vocoder / protocol framing
-    # -> MMDVM / RF hand-off
-    #
-    # Therefore the Route itself is
-    # not yet considered actively
-    # transmitting.
-    #
+    worker_running = bool(
+        worker_status.get(
+            "running",
+            False,
+        )
+    )
+
+    processor_running = bool(
+        processor_status.get(
+            "running",
+            False,
+        )
+    )
+
+    if not (
+        worker_running
+        and
+        processor_running
+    ):
+        stop_source_pipeline(
+            route_id,
+            clear_queue=False,
+        )
+
+        error = (
+            "Source pipeline did not "
+            "reach running state"
+        )
+
+        try:
+            runtime = (
+                route_runtime_manager
+                .mark_error(
+                    route_id,
+                    error,
+                )
+            )
+
+        except Exception:
+            runtime = (
+                route_runtime_manager
+                .get(
+                    route_id
+                )
+            )
+
+        return {
+            "started":
+                False,
+
+            "worker_started":
+                worker_running,
+
+            "processor_started":
+                processor_running,
+
+            "route":
+                route,
+
+            "runtime":
+                runtime,
+
+            "worker":
+                get_worker_status(
+                    route_id
+                ),
+
+            "processor":
+                get_processor_status(
+                    route_id
+                ),
+
+            "queue":
+                get_queue_status(
+                    route_id
+                ),
+
+            "message":
+                error,
+        }
+
+    try:
+        runtime = (
+            route_runtime_manager
+            .mark_running(
+                route_id
+            )
+        )
+
+    except Exception as error:
+        stop_source_pipeline(
+            route_id,
+            clear_queue=False,
+        )
+
+        message = (
+            "Unable to mark route "
+            f"runtime as running: {error}"
+        )
+
+        try:
+            runtime = (
+                route_runtime_manager
+                .mark_error(
+                    route_id,
+                    message,
+                )
+            )
+
+        except Exception:
+            runtime = (
+                route_runtime_manager
+                .get(
+                    route_id
+                )
+            )
+
+        raise HTTPException(
+            status_code=500,
+            detail=message,
+        ) from error
 
     return {
         "started":
-            False,
+            True,
 
         "worker_started":
-            bool(
-                worker_status.get(
-                    "running",
-                    False,
-                )
-            ),
+            worker_running,
 
         "processor_started":
-            bool(
-                processor_status.get(
-                    "running",
-                    False,
-                )
-            ),
+            processor_running,
 
         "route":
             route,
@@ -1300,10 +1380,8 @@ def start_route(
 
         "message":
             (
-                "Source worker and "
-                "call processor started. "
-                "Audio-to-RF processing "
-                "is not connected yet."
+                "Route source pipeline "
+                "started successfully"
             ),
     }
 
