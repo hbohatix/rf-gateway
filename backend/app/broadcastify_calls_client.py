@@ -5,23 +5,25 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from dataclasses import (
-    dataclass,
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+
+DEFAULT_BASE_URL = "https://api.bcfy.io"
+
+DEFAULT_WEB_BASE_URL = (
+    "https://www.broadcastify.com"
 )
 
-from typing import (
-    Any,
-    Mapping,
-)
-
-
-DEFAULT_BASE_URL = (
-    "https://api.bcfy.io"
+DEFAULT_LIVE_CALLS_URL = (
+    "https://www.broadcastify.com"
+    "/calls/apis/live-calls"
 )
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
@@ -141,7 +143,9 @@ class BroadcastifyCallsConfig:
 
     playlist_path: str = ""
 
-    live_calls_path: str = ""
+    live_calls_path: str = (
+        DEFAULT_LIVE_CALLS_URL
+    )
 
     call_path: str = ""
 
@@ -207,6 +211,17 @@ class BroadcastifyCallsConfig:
             ) from error
 
 
+        live_calls_path = (
+            os.getenv(
+                ENV_LIVE_CALLS_PATH,
+                "",
+            )
+            .strip()
+            or
+            DEFAULT_LIVE_CALLS_URL
+        )
+
+
         return cls(
             base_url=(
                 os.getenv(
@@ -253,11 +268,7 @@ class BroadcastifyCallsConfig:
             ),
 
             live_calls_path=(
-                os.getenv(
-                    ENV_LIVE_CALLS_PATH,
-                    "",
-                )
-                .strip()
+                live_calls_path
             ),
 
             call_path=(
@@ -431,6 +442,10 @@ class BroadcastifyCallsClient:
             .from_environment()
         )
 
+        self._live_session_key = (
+            self._make_live_session_key()
+        )
+
 
     @property
     def configured(
@@ -439,6 +454,27 @@ class BroadcastifyCallsClient:
         return (
             self.config
             .transport_configured()
+        )
+
+
+    @property
+    def live_session_key(
+        self,
+    ) -> str:
+        return (
+            self._live_session_key
+        )
+
+
+    def reset_live_session(
+        self,
+    ) -> str:
+        self._live_session_key = (
+            self._make_live_session_key()
+        )
+
+        return (
+            self._live_session_key
         )
 
 
@@ -491,12 +527,8 @@ class BroadcastifyCallsClient:
                 .jwt_ttl_seconds,
 
             #
-            # Compatibility fields for the
-            # current sources.py / frontend.
-            #
-            # These can be removed after the
-            # source API status contract is
-            # migrated to the JWT field names.
+            # Compatibility fields for
+            # current sources.py/frontend.
             #
             "api_key_configured":
                 bool(
@@ -660,6 +692,64 @@ class BroadcastifyCallsClient:
         )
 
 
+    def _make_live_session_key(
+        self,
+    ) -> str:
+        result: list[str] = []
+
+
+        for character in (
+            "xxxxxxxx-yyyy"
+        ):
+            if character == "x":
+                value = (
+                    secrets.randbelow(
+                        16
+                    )
+                )
+
+                result.append(
+                    format(
+                        value,
+                        "x",
+                    )
+                )
+
+                continue
+
+
+            if character == "y":
+                random_value = (
+                    secrets.randbelow(
+                        16
+                    )
+                )
+
+                value = (
+                    random_value
+                    & 0x3
+                ) | 0x8
+
+                result.append(
+                    format(
+                        value,
+                        "x",
+                    )
+                )
+
+                continue
+
+
+            result.append(
+                character
+            )
+
+
+        return "".join(
+            result
+        )
+
+
     def _headers(
         self,
         *,
@@ -776,6 +866,40 @@ class BroadcastifyCallsClient:
         return url
 
 
+    def _resolve_live_calls_url(
+        self,
+        path: str,
+    ) -> str:
+        if (
+            path.startswith(
+                "http://"
+            )
+            or
+            path.startswith(
+                "https://"
+            )
+        ):
+            return (
+                path
+            )
+
+
+        return (
+            urllib.parse.urljoin(
+                (
+                    DEFAULT_WEB_BASE_URL
+                    .rstrip(
+                        "/"
+                    )
+                    + "/"
+                ),
+                path.lstrip(
+                    "/"
+                ),
+            )
+        )
+
+
     def _is_api_origin(
         self,
         url: str,
@@ -836,6 +960,15 @@ class BroadcastifyCallsClient:
         authenticated:
             bool
             | None = None,
+        data:
+            bytes
+            | None = None,
+        extra_headers:
+            Mapping[
+                str,
+                str,
+            ]
+            | None = None,
     ) -> tuple[
         bytes,
         Mapping[
@@ -843,9 +976,11 @@ class BroadcastifyCallsClient:
             str,
         ],
     ]:
-        url = self._build_url(
-            path,
-            query,
+        url = (
+            self._build_url(
+                path,
+                query,
+            )
         )
 
 
@@ -857,16 +992,30 @@ class BroadcastifyCallsClient:
             )
 
 
+        headers = (
+            self._headers(
+                accept=accept,
+                authenticated=(
+                    authenticated
+                ),
+            )
+        )
+
+
+        if extra_headers:
+            headers.update(
+                dict(
+                    extra_headers
+                )
+            )
+
+
         request = (
             urllib.request.Request(
                 url,
+                data=data,
                 method=method,
-                headers=(
-                    self._headers(
-                        accept=accept,
-                        authenticated=authenticated,
-                    )
-                ),
+                headers=headers,
             )
         )
 
@@ -892,7 +1041,9 @@ class BroadcastifyCallsClient:
 
         except urllib.error.HTTPError as error:
             try:
-                body = error.read()
+                body = (
+                    error.read()
+                )
 
             except Exception:
                 body = b""
@@ -946,6 +1097,34 @@ class BroadcastifyCallsClient:
             ) from error
 
 
+    def _decode_json_body(
+        self,
+        body: bytes,
+    ) -> Any:
+        try:
+            return (
+                json.loads(
+                    body.decode(
+                        "utf-8",
+                        errors="strict",
+                    )
+                )
+            )
+
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as error:
+            raise (
+                BroadcastifyCallsError(
+                    (
+                        "Broadcastify Calls API "
+                        "returned invalid JSON"
+                    )
+                )
+            ) from error
+
+
     def _request_json(
         self,
         *,
@@ -971,26 +1150,75 @@ class BroadcastifyCallsClient:
         )
 
 
-        try:
-            return json.loads(
-                body.decode(
-                    "utf-8",
-                    errors="strict",
-                )
+        return (
+            self._decode_json_body(
+                body
             )
+        )
 
-        except (
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-        ) as error:
-            raise (
-                BroadcastifyCallsError(
-                    (
-                        "Broadcastify Calls API "
-                        "returned invalid JSON"
-                    )
-                )
-            ) from error
+
+    def _request_form_json(
+        self,
+        *,
+        path: str,
+        form:
+            Mapping[
+                str,
+                Any,
+            ],
+        referer: str,
+    ) -> Any:
+        url = (
+            self._resolve_live_calls_url(
+                path
+            )
+        )
+
+
+        encoded_form = (
+            urllib.parse.urlencode(
+                form,
+                doseq=True,
+            )
+            .encode(
+                "utf-8"
+            )
+        )
+
+
+        body, _headers = (
+            self._request_bytes(
+                method="POST",
+                path=url,
+                accept="*/*",
+                authenticated=False,
+                data=encoded_form,
+                extra_headers={
+                    "Content-Type":
+                        (
+                            "application/"
+                            "x-www-form-urlencoded; "
+                            "charset=UTF-8"
+                        ),
+
+                    "Origin":
+                        DEFAULT_WEB_BASE_URL,
+
+                    "Referer":
+                        referer,
+
+                    "X-Requested-With":
+                        "XMLHttpRequest",
+                },
+            )
+        )
+
+
+        return (
+            self._decode_json_body(
+                body
+            )
+        )
 
 
     def _require_endpoint(
@@ -1011,7 +1239,9 @@ class BroadcastifyCallsClient:
             )
 
 
-        return path_template
+        return (
+            path_template
+        )
 
 
     def get_playlist(
@@ -1032,19 +1262,23 @@ class BroadcastifyCallsClient:
         )
 
 
-        path = template.format(
-            playlist_uuid=(
-                urllib.parse.quote(
-                    playlist_uuid,
-                    safe="",
-                )
-            ),
+        path = (
+            template.format(
+                playlist_uuid=(
+                    urllib.parse.quote(
+                        playlist_uuid,
+                        safe="",
+                    )
+                ),
+            )
         )
 
 
-        return self._request_json(
-            method="GET",
-            path=path,
+        return (
+            self._request_json(
+                method="GET",
+                path=path,
+            )
         )
 
 
@@ -1064,7 +1298,7 @@ class BroadcastifyCallsClient:
             ]
             | None = None,
     ) -> Any:
-        path = (
+        endpoint = (
             self._require_endpoint(
                 path_template=(
                     self.config
@@ -1078,14 +1312,14 @@ class BroadcastifyCallsClient:
         )
 
 
-        query: dict[
+        form: dict[
             str,
             Any,
         ] = {}
 
 
         if extra_query:
-            query.update(
+            form.update(
                 extra_query
             )
 
@@ -1093,37 +1327,47 @@ class BroadcastifyCallsClient:
         if playlist_uuid:
             if (
                 "playlist_uuid"
-                in query
+                in form
             ):
-                raise ValueError(
-                    (
-                        "playlist_uuid cannot be "
-                        "provided both as an argument "
-                        "and in extra_query"
+                raise (
+                    ValueError(
+                        (
+                            "playlist_uuid cannot be "
+                            "provided both as an argument "
+                            "and in extra_query"
+                        )
                     )
                 )
 
-            query[
+
+            form[
                 "playlist_uuid"
-            ] = playlist_uuid
+            ] = (
+                playlist_uuid
+            )
 
 
         if group_id:
             if (
                 "groups"
-                in query
+                in form
             ):
-                raise ValueError(
-                    (
-                        "group_id cannot be provided "
-                        "together with groups in "
-                        "extra_query"
+                raise (
+                    ValueError(
+                        (
+                            "group_id cannot be provided "
+                            "together with groups in "
+                            "extra_query"
+                        )
                     )
                 )
 
-            query[
+
+            form[
                 "groups"
-            ] = group_id
+            ] = (
+                group_id
+            )
 
 
         selector_names = (
@@ -1136,28 +1380,38 @@ class BroadcastifyCallsClient:
 
         selected = [
             name
-            for name in selector_names
+            for name
+            in selector_names
             if (
-                query.get(
+                form.get(
                     name
                 )
                 not in (
                     None,
                     "",
+                    0,
+                    "0",
+                    [],
+                    (),
                 )
             )
         ]
 
 
-        if len(
-            selected
-        ) != 1:
-            raise ValueError(
-                (
-                    "Broadcastify Live Calls requires "
-                    "exactly one selector: "
-                    "playlist_uuid, sid, nodeId, "
-                    "or groups"
+        if (
+            len(
+                selected
+            )
+            != 1
+        ):
+            raise (
+                ValueError(
+                    (
+                        "Broadcastify Live Calls requires "
+                        "exactly one selector: "
+                        "playlist_uuid, sid, nodeId, "
+                        "or groups"
+                    )
                 )
             )
 
@@ -1166,106 +1420,158 @@ class BroadcastifyCallsClient:
             "groups"
             in selected
         ):
-            groups_value = str(
-                query[
+            groups_value = (
+                form[
                     "groups"
                 ]
             )
 
-            groups = [
-                item.strip()
-                for item in (
-                    groups_value
+
+            if isinstance(
+                groups_value,
+                (
+                    list,
+                    tuple,
+                ),
+            ):
+                groups = [
+                    str(
+                        item
+                    )
+                    .strip()
+                    for item
+                    in groups_value
+                    if (
+                        str(
+                            item
+                        )
+                        .strip()
+                    )
+                ]
+
+            else:
+                groups = [
+                    item.strip()
+                    for item
+                    in str(
+                        groups_value
+                    )
                     .split(
                         ","
                     )
-                )
-                if item.strip()
-            ]
+                    if item.strip()
+                ]
 
 
             if not groups:
-                raise ValueError(
-                    (
+                raise (
+                    ValueError(
                         "groups cannot be empty"
                     )
                 )
 
 
-            if len(
-                groups
-            ) > 5:
-                raise ValueError(
-                    (
-                        "Broadcastify Live Calls "
-                        "supports at most 5 groups"
+            if (
+                len(
+                    groups
+                )
+                > 5
+            ):
+                raise (
+                    ValueError(
+                        (
+                            "Broadcastify Live Calls "
+                            "supports at most 5 groups"
+                        )
                     )
                 )
 
 
-            query[
+            form[
                 "groups"
             ] = ",".join(
                 groups
             )
 
 
-        if (
-            query.get(
-                "init"
+        form.setdefault(
+            "pos",
+            int(
+                time.time()
+            ),
+        )
+
+
+        form.setdefault(
+            "doInit",
+            0,
+        )
+
+
+        form.setdefault(
+            "systemId",
+            0,
+        )
+
+
+        form.setdefault(
+            "sid",
+            0,
+        )
+
+
+        session_key = (
+            str(
+                form.get(
+                    "sessionKey"
+                )
+                or
+                self._live_session_key
             )
-            not in (
-                None,
-                "",
-                0,
-                "0",
-            )
-            and
-            query.get(
-                "pos"
-            )
-            not in (
-                None,
-                "",
-            )
-        ):
-            raise ValueError(
-                (
-                    "Broadcastify Live Calls init "
-                    "and pos cannot be used together"
+            .strip()
+        )
+
+
+        if not session_key:
+            raise (
+                ValueError(
+                    "sessionKey cannot be empty"
                 )
             )
 
 
-        if (
-            selected[
-                0
-            ]
-            ==
-            "playlist_uuid"
-            and
-            query.get(
-                "init"
-            )
-            not in (
-                None,
-                "",
-                0,
-                "0",
-            )
-        ):
-            raise ValueError(
-                (
-                    "Broadcastify Live Calls init=1 "
-                    "is not valid for playlist_uuid"
+        form[
+            "sessionKey"
+        ] = (
+            session_key
+        )
+
+
+        if playlist_uuid:
+            referer = (
+                DEFAULT_WEB_BASE_URL
+                + "/calls/playlists/"
+                + "?uuid="
+                + urllib.parse.quote(
+                    playlist_uuid,
+                    safe="",
                 )
+                + "&view=list"
+            )
+
+        else:
+            referer = (
+                DEFAULT_WEB_BASE_URL
+                + "/calls/"
             )
 
 
-        return self._request_json(
-            method="GET",
-            path=path,
-            query=query,
+        return (
+            self._request_form_json(
+                path=endpoint,
+                form=form,
+                referer=referer,
+            )
         )
 
 
@@ -1289,25 +1595,29 @@ class BroadcastifyCallsClient:
         )
 
 
-        path = template.format(
-            group_id=(
-                urllib.parse.quote(
-                    group_id,
-                    safe="",
-                )
-            ),
+        path = (
+            template.format(
+                group_id=(
+                    urllib.parse.quote(
+                        group_id,
+                        safe="",
+                    )
+                ),
 
-            ts=str(
-                int(
-                    ts
-                )
-            ),
+                ts=str(
+                    int(
+                        ts
+                    )
+                ),
+            )
         )
 
 
-        return self._request_json(
-            method="GET",
-            path=path,
+        return (
+            self._request_json(
+                method="GET",
+                path=path,
+            )
         )
 
 
@@ -1338,25 +1648,27 @@ class BroadcastifyCallsClient:
         )
 
 
-        path = template.format(
-            group_id=(
-                urllib.parse.quote(
-                    group_id,
-                    safe="",
-                )
-            ),
+        path = (
+            template.format(
+                group_id=(
+                    urllib.parse.quote(
+                        group_id,
+                        safe="",
+                    )
+                ),
 
-            start_ts=str(
-                int(
-                    start_ts
-                )
-            ),
+                start_ts=str(
+                    int(
+                        start_ts
+                    )
+                ),
 
-            end_ts=str(
-                int(
-                    end_ts
-                )
-            ),
+                end_ts=str(
+                    int(
+                        end_ts
+                    )
+                ),
+            )
         )
 
 
@@ -1372,13 +1684,15 @@ class BroadcastifyCallsClient:
             )
 
 
-        return self._request_json(
-            method="GET",
-            path=path,
-            query=(
-                query
-                or None
-            ),
+        return (
+            self._request_json(
+                method="GET",
+                path=path,
+                query=(
+                    query
+                    or None
+                ),
+            )
         )
 
 
@@ -1390,8 +1704,10 @@ class BroadcastifyCallsClient:
         str | None,
     ]:
         if not audio_url:
-            raise ValueError(
-                "audio_url cannot be empty"
+            raise (
+                ValueError(
+                    "audio_url cannot be empty"
+                )
             )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import time
 
 from copy import (
@@ -35,9 +36,13 @@ from app.call_queue import (
 )
 
 
-MIN_POLL_INTERVAL_SECONDS = 5.0
+MIN_POLL_INTERVAL_SECONDS = 3.0
 
-DEFAULT_POLL_INTERVAL_SECONDS = 5.0
+DEFAULT_POLL_INTERVAL_SECONDS = 3.0
+
+DEFAULT_START_QUEUE_SECONDS = 300
+
+POLL_RESUME_GAP_SECONDS = 30.0
 
 
 def utc_now() -> str:
@@ -52,6 +57,62 @@ def utc_now() -> str:
 def unix_now() -> int:
     return int(
         time.time()
+    )
+
+
+def make_live_session_key() -> str:
+    result: list[str] = []
+
+
+    for character in (
+        "xxxxxxxx-yyyy"
+    ):
+        if character == "x":
+            value = (
+                secrets.randbelow(
+                    16
+                )
+            )
+
+            result.append(
+                format(
+                    value,
+                    "x",
+                )
+            )
+
+            continue
+
+
+        if character == "y":
+            random_value = (
+                secrets.randbelow(
+                    16
+                )
+            )
+
+            value = (
+                random_value
+                & 0x3
+            ) | 0x8
+
+            result.append(
+                format(
+                    value,
+                    "x",
+                )
+            )
+
+            continue
+
+
+        result.append(
+            character
+        )
+
+
+    return "".join(
+        result
     )
 
 
@@ -142,6 +203,17 @@ class BroadcastifyWorker:
         ) = None
 
 
+        self._session_key = (
+            make_live_session_key()
+        )
+
+
+        self._last_poll_monotonic: (
+            float
+            | None
+        ) = None
+
+
         self._state: dict[
             str,
             Any,
@@ -167,6 +239,9 @@ class BroadcastifyWorker:
 
             "poll_interval_seconds":
                 self.poll_interval_seconds,
+
+            "start_queue_seconds":
+                DEFAULT_START_QUEUE_SECONDS,
 
             "poll_count":
                 0,
@@ -197,6 +272,9 @@ class BroadcastifyWorker:
 
             "next_pos":
                 None,
+
+            "do_init":
+                True,
 
             "polling_suspended":
                 False,
@@ -304,6 +382,8 @@ class BroadcastifyWorker:
 
             position = (
                 unix_now()
+                -
+                DEFAULT_START_QUEUE_SECONDS
             )
 
 
@@ -319,6 +399,56 @@ class BroadcastifyWorker:
 
 
             return position
+
+
+    def _prepare_poll_cursor(
+        self,
+    ) -> int:
+        requested_pos = (
+            self._initialize_cursor()
+        )
+
+
+        now_monotonic = (
+            time.monotonic()
+        )
+
+
+        with self._lock:
+            previous_poll = (
+                self._last_poll_monotonic
+            )
+
+
+            if (
+                previous_poll
+                is not None
+                and
+                (
+                    now_monotonic
+                    -
+                    previous_poll
+                )
+                >
+                POLL_RESUME_GAP_SECONDS
+            ):
+                requested_pos = (
+                    unix_now()
+                )
+
+                self._state[
+                    "next_pos"
+                ] = requested_pos
+
+
+            self._last_poll_monotonic = (
+                now_monotonic
+            )
+
+            self._touch()
+
+
+        return requested_pos
 
 
     def status(
@@ -547,6 +677,43 @@ class BroadcastifyWorker:
         return []
 
 
+    def _normalize_live_call(
+        self,
+        call: dict[str, Any],
+    ) -> dict[str, Any]:
+        normalized = (
+            deepcopy(
+                call
+            )
+        )
+
+
+        group_id = (
+            normalized.get(
+                "group_id"
+            )
+            or
+            normalized.get(
+                "groupId"
+            )
+            or
+            normalized.get(
+                "id"
+            )
+        )
+
+
+        if group_id:
+            normalized[
+                "groupId"
+            ] = str(
+                group_id
+            )
+
+
+        return normalized
+
+
     def _extract_last_pos(
         self,
         payload: Any,
@@ -600,7 +767,7 @@ class BroadcastifyWorker:
             return None
 
 
-        if position <= 0:
+        if position < 0:
             return None
 
 
@@ -673,11 +840,21 @@ class BroadcastifyWorker:
 
 
         requested_pos = (
-            self._initialize_cursor()
+            self._prepare_poll_cursor()
         )
 
 
         with self._lock:
+            do_init = (
+                1
+                if self._state.get(
+                    "do_init",
+                    True,
+                )
+                else 0
+            )
+
+
             self._state[
                 "state"
             ] = "polling"
@@ -707,16 +884,37 @@ class BroadcastifyWorker:
                     extra_query={
                         "pos":
                             requested_pos,
+
+                        "doInit":
+                            do_init,
+
+                        "systemId":
+                            0,
+
+                        "sid":
+                            0,
+
+                        "sessionKey":
+                            self._session_key,
                     },
                 )
             )
 
 
-            calls = (
+            raw_calls = (
                 self._extract_calls(
                     payload
                 )
             )
+
+
+            calls = [
+                self._normalize_live_call(
+                    call
+                )
+                for call
+                in raw_calls
+            ]
 
 
             response_last_pos = (
@@ -793,10 +991,9 @@ class BroadcastifyWorker:
                 reason = (
                     "Broadcastify Live Calls "
                     "response did not contain "
-                    "a valid lastPos. Polling "
-                    "was suspended to prevent "
-                    "re-requesting billable "
-                    "call records."
+                    "a valid lastPos value. "
+                    "Polling was suspended to "
+                    "avoid losing cursor state."
                 )
 
 
@@ -816,6 +1013,9 @@ class BroadcastifyWorker:
 
                             "requested_pos":
                                 requested_pos,
+
+                            "do_init":
+                                do_init,
 
                             "last_pos":
                                 None,
@@ -837,10 +1037,16 @@ class BroadcastifyWorker:
                 }
 
 
-            next_pos = max(
-                requested_pos,
-                response_last_pos,
-            )
+            if response_last_pos > 0:
+                next_pos = (
+                    response_last_pos
+                    + 1
+                )
+
+            else:
+                next_pos = (
+                    requested_pos
+                )
 
 
             with self._lock:
@@ -853,6 +1059,10 @@ class BroadcastifyWorker:
                 ] = next_pos
 
                 self._state[
+                    "do_init"
+                ] = False
+
+                self._state[
                     "state"
                 ] = "idle"
 
@@ -863,6 +1073,10 @@ class BroadcastifyWorker:
                 self._state[
                     "error"
                 ] = None
+
+                self._state[
+                    "polling_suspended"
+                ] = False
 
                 self._state[
                     "polling_suspend_reason"
@@ -882,6 +1096,9 @@ class BroadcastifyWorker:
 
                         "requested_pos":
                             requested_pos,
+
+                        "do_init":
+                            do_init,
 
                         "last_pos":
                             response_last_pos,
@@ -1002,8 +1219,20 @@ class BroadcastifyWorker:
             self._stop_event.clear()
 
 
+            self._session_key = (
+                make_live_session_key()
+            )
+
+
+            self._last_poll_monotonic = (
+                None
+            )
+
+
             initial_pos = (
                 unix_now()
+                -
+                DEFAULT_START_QUEUE_SECONDS
             )
 
 
@@ -1030,6 +1259,10 @@ class BroadcastifyWorker:
             self._state[
                 "next_pos"
             ] = initial_pos
+
+            self._state[
+                "do_init"
+            ] = True
 
             self._state[
                 "polling_suspended"

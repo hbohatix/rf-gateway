@@ -1,5 +1,60 @@
 from contextlib import asynccontextmanager
+import os
+from pathlib import Path
 from typing import Annotated, Literal, Union
+
+
+def load_local_environment() -> None:
+    env_file = (
+        Path(__file__)
+        .resolve()
+        .parent
+        .parent
+        / ".env"
+    )
+
+    if not env_file.is_file():
+        return
+
+    for raw_line in env_file.read_text(
+        encoding="utf-8"
+    ).splitlines():
+        line = raw_line.strip()
+
+        if (
+            not line
+            or line.startswith("#")
+        ):
+            continue
+
+        if line.startswith("export "):
+            line = line[7:].strip()
+
+        key, separator, value = (
+            line.partition("=")
+        )
+
+        if not separator:
+            continue
+
+        key = key.strip()
+        value = value.strip()
+
+        if not key:
+            continue
+
+        if (
+            len(value) >= 2
+            and value[0] == value[-1]
+            and value[0] in ("'", '"')
+        ):
+            value = value[1:-1]
+
+        os.environ[key] = value
+
+
+load_local_environment()
+
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
