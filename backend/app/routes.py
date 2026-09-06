@@ -20,6 +20,10 @@ from pydantic import (
     Field,
 )
 
+from app.broadcastify_live_audio_pipeline import (
+    broadcastify_live_audio_pipeline_manager,
+)
+
 from app.broadcastify_worker import (
     broadcastify_worker_manager,
 )
@@ -70,10 +74,12 @@ BACKEND_DIR = (
     .parent
 )
 
+
 DATA_DIR = (
     BACKEND_DIR
     / "data"
 )
+
 
 ROUTES_FILE = (
     DATA_DIR
@@ -467,6 +473,22 @@ def get_processor_status(
     )
 
 
+def get_live_audio_status(
+    route_id: str,
+) -> dict | None:
+    pipeline = (
+        broadcastify_live_audio_pipeline_manager
+        .get(
+            route_id
+        )
+    )
+
+    if pipeline is None:
+        return None
+
+    return pipeline.status()
+
+
 def get_queue_status(
     route_id: str,
 ) -> dict:
@@ -483,60 +505,150 @@ def get_queue_status(
 def start_source_pipeline(
     route: dict,
     source: dict,
-) -> tuple[
-    dict,
-    dict,
-]:
+) -> dict:
     route_id = str(
         route[
             "id"
         ]
     )
 
-    protocol = str(
-        route[
-            "protocol"
-        ]
-    )
-
-    worker = (
-        broadcastify_worker_manager
-        .create_or_get(
-            route_id=route_id,
-            source=source,
+    protocol = (
+        str(
+            route[
+                "protocol"
+            ]
         )
+        .strip()
+        .lower()
     )
 
-    worker_status = (
-        worker.start()
+    source_type = (
+        str(
+            source.get(
+                "type"
+            )
+            or ""
+        )
+        .strip()
+        .lower()
     )
 
-    try:
-        processor_status = (
-            call_processor_manager
-            .start(
-                route_id,
-                protocol,
+
+    if (
+        source_type
+        ==
+        "broadcastify_calls"
+    ):
+        worker = (
+            broadcastify_worker_manager
+            .create_or_get(
+                route_id=route_id,
+                source=source,
             )
         )
 
-    except Exception as error:
-        broadcastify_worker_manager.stop(
-            route_id
+        worker_status = (
+            worker.start()
         )
 
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Unable to start "
-                "call processor: "
-                f"{error}"
-            ),
-        ) from error
+        try:
+            processor_status = (
+                call_processor_manager
+                .start(
+                    route_id,
+                    protocol,
+                )
+            )
 
-    return (
-        worker_status,
-        processor_status,
+        except Exception as error:
+            broadcastify_worker_manager.stop(
+                route_id
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Unable to start "
+                    "call processor: "
+                    f"{error}"
+                ),
+            ) from error
+
+        return {
+            "source_type":
+                source_type,
+
+            "worker":
+                worker_status,
+
+            "processor":
+                processor_status,
+
+            "live_audio":
+                None,
+        }
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_live_audio"
+    ):
+        if protocol != "p25":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Broadcastify Live Audio "
+                    "currently supports "
+                    "P25 routes only"
+                ),
+            )
+
+        pipeline = (
+            broadcastify_live_audio_pipeline_manager
+            .create_or_get(
+                route_id=route_id,
+                source=source,
+                protocol=protocol,
+            )
+        )
+
+        try:
+            live_audio_status = (
+                pipeline.start()
+            )
+
+        except Exception as error:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Unable to start "
+                    "Broadcastify Live Audio "
+                    f"pipeline: {error}"
+                ),
+            ) from error
+
+        return {
+            "source_type":
+                source_type,
+
+            "worker":
+                None,
+
+            "processor":
+                None,
+
+            "live_audio":
+                live_audio_status,
+        }
+
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "Unsupported route source type: "
+            f"{source_type or 'missing'}"
+        ),
     )
 
 
@@ -545,6 +657,13 @@ def stop_source_pipeline(
     *,
     clear_queue: bool,
 ) -> dict:
+    live_audio_status = (
+        broadcastify_live_audio_pipeline_manager
+        .stop(
+            route_id
+        )
+    )
+
     processor_status = (
         call_processor_manager
         .stop(
@@ -582,6 +701,9 @@ def stop_source_pipeline(
         "processor":
             processor_status,
 
+        "live_audio":
+            live_audio_status,
+
         "queue_clear":
             queue_clear,
 
@@ -590,12 +712,77 @@ def stop_source_pipeline(
     }
 
 
+def source_pipeline_running(
+    result: dict,
+) -> bool:
+    source_type = (
+        result.get(
+            "source_type"
+        )
+    )
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_calls"
+    ):
+        worker = (
+            result.get(
+                "worker"
+            )
+            or {}
+        )
+
+        processor = (
+            result.get(
+                "processor"
+            )
+            or {}
+        )
+
+        return bool(
+            worker.get(
+                "running",
+                False,
+            )
+            and
+            processor.get(
+                "running",
+                False,
+            )
+        )
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_live_audio"
+    ):
+        live_audio = (
+            result.get(
+                "live_audio"
+            )
+            or {}
+        )
+
+        return bool(
+            live_audio.get(
+                "running",
+                False,
+            )
+        )
+
+
+    return False
+
+
 #
 # Static endpoints first.
 #
-# Otherwise "/runtime", "/workers"
-# or "/processors" could be
-# interpreted as a route_id.
+# Otherwise "/runtime", "/workers",
+# "/processors" or "/live-audio"
+# could be interpreted as a route_id.
 #
 
 
@@ -716,6 +903,50 @@ def list_route_processors():
 
         "processors":
             processors,
+    }
+
+
+@router.get(
+    "/live-audio"
+)
+def list_live_audio_pipelines():
+    pipelines = (
+        broadcastify_live_audio_pipeline_manager
+        .list_status()
+    )
+
+    running_count = sum(
+        1
+        for pipeline in pipelines
+        if pipeline.get(
+            "running",
+            False,
+        )
+    )
+
+    transmitting_count = sum(
+        1
+        for pipeline in pipelines
+        if pipeline.get(
+            "state"
+        )
+        == "transmitting"
+    )
+
+    return {
+        "count":
+            len(
+                pipelines
+            ),
+
+        "running_count":
+            running_count,
+
+        "transmitting_count":
+            transmitting_count,
+
+        "pipelines":
+            pipelines,
     }
 
 
@@ -844,6 +1075,11 @@ def get_route(
                 route_id
             ),
 
+        "live_audio":
+            get_live_audio_status(
+                route_id
+            ),
+
         "queue":
             get_queue_status(
                 route_id
@@ -875,6 +1111,11 @@ def get_route_runtime(
 
         "processor":
             get_processor_status(
+                route_id
+            ),
+
+        "live_audio":
+            get_live_audio_status(
                 route_id
             ),
 
@@ -913,6 +1154,11 @@ def get_route_worker(
                 route_id
             ),
 
+        "live_audio":
+            get_live_audio_status(
+                route_id
+            ),
+
         "queue":
             get_queue_status(
                 route_id
@@ -942,6 +1188,11 @@ def get_route_processor(
 
         "processor":
             processor,
+
+        "live_audio":
+            get_live_audio_status(
+                route_id
+            ),
 
         "queue":
             get_queue_status(
@@ -1007,6 +1258,11 @@ def preflight_route(
                 route_id
             ),
 
+        "live_audio":
+            get_live_audio_status(
+                route_id
+            ),
+
         "queue":
             get_queue_status(
                 route_id
@@ -1057,12 +1313,23 @@ def start_route_worker(
             ),
         )
 
-    (
-        worker_status,
-        processor_status,
-    ) = start_source_pipeline(
-        route,
-        source,
+    result = (
+        start_source_pipeline(
+            route,
+            source,
+        )
+    )
+
+    worker_status = (
+        result[
+            "worker"
+        ]
+    )
+
+    processor_status = (
+        result[
+            "processor"
+        ]
     )
 
     return {
@@ -1090,6 +1357,9 @@ def start_route_worker(
 
         "processor":
             processor_status,
+
+        "live_audio":
+            None,
 
         "queue":
             get_queue_status(
@@ -1121,6 +1391,12 @@ def stop_route_worker(
         ]
     )
 
+    live_audio = (
+        result[
+            "live_audio"
+        ]
+    )
+
     return {
         "worker_stopped":
             True,
@@ -1135,6 +1411,16 @@ def stop_route_worker(
                 )
             ),
 
+        "live_audio_stopped":
+            (
+                live_audio is None
+                or
+                not live_audio.get(
+                    "running",
+                    False,
+                )
+            ),
+
         "worker":
             result[
                 "worker"
@@ -1142,6 +1428,9 @@ def stop_route_worker(
 
         "processor":
             processor,
+
+        "live_audio":
+            live_audio,
 
         "queue_clear":
             result[
@@ -1185,6 +1474,9 @@ def start_route(
             "processor_started":
                 False,
 
+            "live_audio_started":
+                False,
+
             "route":
                 route,
 
@@ -1198,6 +1490,11 @@ def start_route(
 
             "processor":
                 get_processor_status(
+                    route_id
+                ),
+
+            "live_audio":
+                get_live_audio_status(
                     route_id
                 ),
 
@@ -1221,15 +1518,41 @@ def start_route(
         )
     )
 
-    (
-        worker_status,
-        processor_status,
-    ) = start_source_pipeline(
-        route,
-        source,
+    pipeline_result = (
+        start_source_pipeline(
+            route,
+            source,
+        )
     )
 
+    source_type = (
+        pipeline_result.get(
+            "source_type"
+        )
+    )
+
+    worker_status = (
+        pipeline_result.get(
+            "worker"
+        )
+    )
+
+    processor_status = (
+        pipeline_result.get(
+            "processor"
+        )
+    )
+
+    live_audio_status = (
+        pipeline_result.get(
+            "live_audio"
+        )
+    )
+
+
     worker_running = bool(
+        worker_status
+        and
         worker_status.get(
             "running",
             False,
@@ -1237,17 +1560,31 @@ def start_route(
     )
 
     processor_running = bool(
+        processor_status
+        and
         processor_status.get(
             "running",
             False,
         )
     )
 
-    if not (
-        worker_running
+    live_audio_running = bool(
+        live_audio_status
         and
-        processor_running
-    ):
+        live_audio_status.get(
+            "running",
+            False,
+        )
+    )
+
+    pipeline_running = (
+        source_pipeline_running(
+            pipeline_result
+        )
+    )
+
+
+    if not pipeline_running:
         stop_source_pipeline(
             route_id,
             clear_queue=False,
@@ -1279,11 +1616,17 @@ def start_route(
             "started":
                 False,
 
+            "source_type":
+                source_type,
+
             "worker_started":
                 worker_running,
 
             "processor_started":
                 processor_running,
+
+            "live_audio_started":
+                live_audio_running,
 
             "route":
                 route,
@@ -1301,6 +1644,11 @@ def start_route(
                     route_id
                 ),
 
+            "live_audio":
+                get_live_audio_status(
+                    route_id
+                ),
+
             "queue":
                 get_queue_status(
                     route_id
@@ -1309,6 +1657,7 @@ def start_route(
             "message":
                 error,
         }
+
 
     try:
         runtime = (
@@ -1351,15 +1700,22 @@ def start_route(
             detail=message,
         ) from error
 
+
     return {
         "started":
             True,
+
+        "source_type":
+            source_type,
 
         "worker_started":
             worker_running,
 
         "processor_started":
             processor_running,
+
+        "live_audio_started":
+            live_audio_running,
 
         "route":
             route,
@@ -1372,6 +1728,9 @@ def start_route(
 
         "processor":
             processor_status,
+
+        "live_audio":
+            live_audio_status,
 
         "queue":
             get_queue_status(
@@ -1430,6 +1789,11 @@ def stop_route(
                 "processor"
             ],
 
+        "live_audio":
+            result[
+                "live_audio"
+            ],
+
         "queue":
             {
                 "clear":
@@ -1486,6 +1850,7 @@ def update_route(
 
     runtime_relevant_change = False
 
+
     if (
         "name"
         in fields_set
@@ -1504,6 +1869,7 @@ def update_route(
         ] = normalize_name(
             request.name
         )
+
 
     if (
         "source_id"
@@ -1534,6 +1900,7 @@ def update_route(
             "source_id"
         ] = request.source_id
 
+
     if (
         "device_id"
         in fields_set
@@ -1558,6 +1925,7 @@ def update_route(
         route[
             "device_id"
         ] = request.device_id
+
 
     if (
         "protocol"
@@ -1584,6 +1952,7 @@ def update_route(
             "protocol"
         ] = request.protocol
 
+
     if (
         "enabled"
         in fields_set
@@ -1609,6 +1978,7 @@ def update_route(
             "enabled"
         ] = request.enabled
 
+
     route[
         "updated_at"
     ] = utc_now()
@@ -1617,7 +1987,12 @@ def update_route(
         store
     )
 
+
     if runtime_relevant_change:
+        broadcastify_live_audio_pipeline_manager.remove(
+            route_id
+        )
+
         broadcastify_worker_manager.remove(
             route_id
         )
@@ -1633,6 +2008,7 @@ def update_route(
         route_runtime_manager.stop(
             route_id
         )
+
 
     return {
         **deepcopy(
@@ -1652,6 +2028,11 @@ def update_route(
 
         "processor":
             get_processor_status(
+                route_id
+            ),
+
+        "live_audio":
+            get_live_audio_status(
                 route_id
             ),
 
@@ -1708,6 +2089,11 @@ def delete_route(
         store
     )
 
+
+    broadcastify_live_audio_pipeline_manager.remove(
+        route_id
+    )
+
     broadcastify_worker_manager.remove(
         route_id
     )
@@ -1723,6 +2109,7 @@ def delete_route(
     route_runtime_manager.remove(
         route_id
     )
+
 
     return {
         "deleted":

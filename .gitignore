@@ -127,3 +127,5 @@ backend/data/
 calibration-data/
 captures/
 recordings/
+# Local development backups
+*.bak-*

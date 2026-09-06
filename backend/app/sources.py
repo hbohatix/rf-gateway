@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import shutil
 import threading
 import urllib.error
 import urllib.parse
@@ -29,6 +30,10 @@ from pydantic import (
 
 from app.broadcastify_calls_client import (
     broadcastify_calls_client,
+)
+
+from app.audio_decoder import (
+    audio_decoder,
 )
 
 
@@ -61,6 +66,19 @@ BROADCASTIFY_HOSTS = {
 
 PLAYLIST_PATH = (
     "/calls/playlists/"
+)
+
+
+LIVE_FEED_PATH_PATTERN = re.compile(
+    r"^/listen/feed/"
+    r"(?P<feed_id>[0-9]+)"
+    r"/?$",
+    flags=re.IGNORECASE,
+)
+
+
+LIVE_FEED_POPUP_PATH = (
+    "/listen/feed/popup.php"
 )
 
 
@@ -98,6 +116,13 @@ TAG_PATTERN = re.compile(
 )
 
 
+SUPPORTED_SOURCE_TYPES = {
+    "broadcastify_calls",
+    "broadcastify_live_audio",
+    "auto",
+}
+
+
 class BroadcastifyProbeRequest(
     BaseModel
 ):
@@ -116,9 +141,7 @@ class SourceCreateRequest(
     )
 
     type: str = Field(
-        default=(
-            "broadcastify_calls"
-        ),
+        default="broadcastify_calls",
     )
 
     url: str = Field(
@@ -235,9 +258,9 @@ def normalize_text(
     return value.strip()
 
 
-def parse_broadcastify_playlist_url(
+def parse_broadcastify_url_base(
     url: str,
-) -> dict:
+) -> urllib.parse.ParseResult:
     parsed = (
         urllib.parse.urlparse(
             url.strip()
@@ -272,10 +295,23 @@ def parse_broadcastify_playlist_url(
     ):
         raise ValueError(
             (
-                "URL is not a Broadcastify "
-                "playlist URL"
+                "URL is not a "
+                "Broadcastify URL"
             )
         )
+
+
+    return parsed
+
+
+def parse_broadcastify_playlist_url(
+    url: str,
+) -> dict:
+    parsed = (
+        parse_broadcastify_url_base(
+            url
+        )
+    )
 
 
     if (
@@ -343,9 +379,7 @@ def parse_broadcastify_playlist_url(
             "console",
         )
     ):
-        requested_view = (
-            "list"
-        )
+        requested_view = "list"
 
 
     canonical_url = (
@@ -372,6 +406,165 @@ def parse_broadcastify_playlist_url(
         "canonical_url":
             canonical_url,
     }
+
+
+def parse_broadcastify_live_audio_url(
+    url: str,
+) -> dict:
+    parsed = (
+        parse_broadcastify_url_base(
+            url
+        )
+    )
+
+
+    feed_id_raw: str | None = None
+
+
+    path_match = (
+        LIVE_FEED_PATH_PATTERN
+        .fullmatch(
+            parsed.path
+        )
+    )
+
+
+    if path_match:
+        feed_id_raw = (
+            path_match.group(
+                "feed_id"
+            )
+        )
+
+
+    elif (
+        parsed.path.lower()
+        ==
+        LIVE_FEED_POPUP_PATH
+    ):
+        query = (
+            urllib.parse.parse_qs(
+                parsed.query
+            )
+        )
+
+
+        feed_id_raw = (
+            query.get(
+                "feedId",
+                [None],
+            )[0]
+            or
+            query.get(
+                "feedid",
+                [None],
+            )[0]
+        )
+
+
+    if not feed_id_raw:
+        raise ValueError(
+            (
+                "Expected Broadcastify Live "
+                "Audio feed URL"
+            )
+        )
+
+
+    try:
+        feed_id = int(
+            feed_id_raw
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ) as error:
+        raise ValueError(
+            (
+                "Invalid Broadcastify "
+                "Live Audio feed ID"
+            )
+        ) from error
+
+
+    if feed_id <= 0:
+        raise ValueError(
+            (
+                "Broadcastify Live Audio "
+                "feed ID must be greater "
+                "than zero"
+            )
+        )
+
+
+    canonical_url = (
+        "https://www.broadcastify.com"
+        f"/listen/feed/{feed_id}"
+    )
+
+
+    return {
+        "provider":
+            "broadcastify",
+
+        "source_type":
+            "broadcastify_live_audio",
+
+        "feed_id":
+            feed_id,
+
+        "canonical_url":
+            canonical_url,
+    }
+
+
+def parse_broadcastify_source_url(
+    url: str,
+) -> dict:
+    parsed = (
+        parse_broadcastify_url_base(
+            url
+        )
+    )
+
+
+    if (
+        parsed.path.startswith(
+            PLAYLIST_PATH
+        )
+    ):
+        return (
+            parse_broadcastify_playlist_url(
+                url
+            )
+        )
+
+
+    if (
+        LIVE_FEED_PATH_PATTERN
+        .fullmatch(
+            parsed.path
+        )
+        or
+        parsed.path.lower()
+        ==
+        LIVE_FEED_POPUP_PATH
+    ):
+        return (
+            parse_broadcastify_live_audio_url(
+                url
+            )
+        )
+
+
+    raise ValueError(
+        (
+            "Expected Broadcastify Calls "
+            "playlist URL or Broadcastify "
+            "Live Audio feed URL"
+        )
+    )
 
 
 def extract_page_name(
@@ -414,6 +607,7 @@ def extract_page_name(
             not in (
                 "broadcastify",
                 "broadcastify calls",
+                "broadcastify live audio",
             )
         ):
             return title
@@ -448,9 +642,105 @@ def extract_page_name(
     return None
 
 
-def fetch_playlist_page(
-    canonical_url: str,
+def page_matches_source_type(
+    page: str,
+    source_type: str,
+    feed_id: int | None = None,
+) -> bool:
+    lower_page = (
+        page.lower()
+    )
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_calls"
+    ):
+        return bool(
+            "playlist:"
+            in lower_page
+            or
+            "broadcastify calls"
+            in lower_page
+            or
+            "calls/playlists"
+            in lower_page
+        )
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_live_audio"
+    ):
+        feed_id_match = True
+
+
+        if feed_id is not None:
+            feed_id_match = bool(
+                str(
+                    feed_id
+                )
+                in page
+            )
+
+
+        return bool(
+            feed_id_match
+            and
+            (
+                "live audio"
+                in lower_page
+                or
+                "feed details"
+                in lower_page
+                or
+                "feed id"
+                in lower_page
+                or
+                "/listen/feed/"
+                in lower_page
+            )
+        )
+
+
+    return False
+
+
+def fetch_broadcastify_page(
+    parsed_source: dict,
 ) -> dict:
+    canonical_url = str(
+        parsed_source[
+            "canonical_url"
+        ]
+    )
+
+
+    source_type = str(
+        parsed_source[
+            "source_type"
+        ]
+    )
+
+
+    feed_id_raw = (
+        parsed_source.get(
+            "feed_id"
+        )
+    )
+
+
+    feed_id = (
+        int(
+            feed_id_raw
+        )
+        if feed_id_raw is not None
+        else None
+    )
+
+
     request = (
         urllib.request.Request(
             canonical_url,
@@ -563,21 +853,30 @@ def fetch_playlist_page(
     )
 
 
-    lower_page = (
-        page.lower()
+    looks_like_source = (
+        page_matches_source_type(
+            page,
+            source_type,
+            feed_id,
+        )
     )
 
 
-    looks_like_playlist = (
-        "playlist:"
-        in lower_page
-        or
-        "broadcastify calls"
-        in lower_page
-        or
-        "calls/playlists"
-        in lower_page
-    )
+    if (
+        source_type
+        ==
+        "broadcastify_calls"
+    ):
+        invalid_page_message = (
+            "Page did not look like "
+            "a Broadcastify Calls playlist"
+        )
+
+    else:
+        invalid_page_message = (
+            "Page did not look like "
+            "a Broadcastify Live Audio feed"
+        )
 
 
     return {
@@ -585,7 +884,7 @@ def fetch_playlist_page(
             bool(
                 status_code == 200
                 and
-                looks_like_playlist
+                looks_like_source
             ),
 
         "http_status":
@@ -600,13 +899,8 @@ def fetch_playlist_page(
         "error":
             (
                 None
-                if looks_like_playlist
-                else
-                (
-                    "Page did not look like "
-                    "a Broadcastify Calls "
-                    "playlist"
-                )
+                if looks_like_source
+                else invalid_page_message
             ),
     }
 
@@ -738,6 +1032,148 @@ def get_playback_state(
     return "not_configured"
 
 
+def get_live_audio_transport_status() -> dict:
+    curl_path = (
+        shutil.which(
+            "curl"
+        )
+    )
+
+    ffmpeg_path = (
+        getattr(
+            audio_decoder,
+            "ffmpeg_path",
+            None,
+        )
+    )
+
+    sample_rate = (
+        getattr(
+            audio_decoder,
+            "sample_rate",
+            None,
+        )
+    )
+
+    channels = (
+        getattr(
+            audio_decoder,
+            "channels",
+            None,
+        )
+    )
+
+    chunk_samples = (
+        int(
+            sample_rate
+            * 0.020
+        )
+        if isinstance(
+            sample_rate,
+            int,
+        )
+        else None
+    )
+
+    chunk_bytes = (
+        chunk_samples
+        * channels
+        * 2
+        if (
+            chunk_samples
+            is not None
+            and
+            isinstance(
+                channels,
+                int,
+            )
+        )
+        else None
+    )
+
+    configured = bool(
+        curl_path
+        and
+        ffmpeg_path
+        and
+        chunk_bytes == 320
+        and
+        sample_rate == 8000
+        and
+        channels == 1
+    )
+
+    reason = None
+
+    if not configured:
+        missing: list[str] = []
+
+        if not curl_path:
+            missing.append(
+                "curl"
+            )
+
+        if not ffmpeg_path:
+            missing.append(
+                "ffmpeg"
+            )
+
+        if chunk_bytes != 320:
+            missing.append(
+                "20 ms PCM chunk format"
+            )
+
+        if sample_rate != 8000:
+            missing.append(
+                "8000 Hz PCM output"
+            )
+
+        if channels != 1:
+            missing.append(
+                "mono PCM output"
+            )
+
+        reason = (
+            "Live Audio stream transport "
+            "is not ready: "
+            + ", ".join(
+                missing
+            )
+        )
+
+    return {
+        "configured":
+            configured,
+
+        "transport":
+            "curl_http2_hls_segments",
+
+        "decoder":
+            "ffmpeg_per_segment",
+
+        "playback_model":
+            "continuous_stream",
+
+        "sample_rate":
+            sample_rate,
+
+        "channels":
+            channels,
+
+        "chunk_bytes":
+            chunk_bytes,
+
+        "curl_path":
+            curl_path,
+
+        "ffmpeg_path":
+            ffmpeg_path,
+
+        "reason":
+            reason,
+    }
+
+
 def apply_current_audio_api_status(
     source: dict,
 ) -> dict:
@@ -756,6 +1192,70 @@ def apply_current_audio_api_status(
         dict,
     ):
         probe = {}
+
+
+    source_type = (
+        current.get(
+            "type"
+        )
+        or
+        probe.get(
+            "source_type"
+        )
+    )
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_live_audio"
+    ):
+        transport = (
+            get_live_audio_transport_status()
+        )
+
+
+        transport_configured = bool(
+            transport.get(
+                "configured",
+                False,
+            )
+        )
+
+
+        probe[
+            "audio_api_configured"
+        ] = transport_configured
+
+
+        probe[
+            "playback_state"
+        ] = (
+            "configured"
+            if transport_configured
+            else
+            "stream_transport_not_configured"
+        )
+
+
+        probe[
+            "playback_model"
+        ] = (
+            "continuous_stream"
+        )
+
+
+        probe[
+            "audio_api"
+        ] = transport
+
+
+        current[
+            "probe"
+        ] = probe
+
+
+        return current
 
 
     audio_api = (
@@ -806,19 +1306,92 @@ def probe_broadcastify(
     url: str,
 ) -> dict:
     parsed = (
-        parse_broadcastify_playlist_url(
+        parse_broadcastify_source_url(
             url
         )
     )
 
 
     page_probe = (
-        fetch_playlist_page(
-            parsed[
-                "canonical_url"
-            ]
+        fetch_broadcastify_page(
+            parsed
         )
     )
+
+
+    source_type = (
+        parsed[
+            "source_type"
+        ]
+    )
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_live_audio"
+    ):
+        audio_api = (
+            get_live_audio_transport_status()
+        )
+
+
+        audio_api_configured = bool(
+            audio_api.get(
+                "configured",
+                False,
+            )
+        )
+
+
+        return {
+            **parsed,
+
+            "reachable":
+                page_probe[
+                    "reachable"
+                ],
+
+            "http_status":
+                page_probe[
+                    "http_status"
+                ],
+
+            "page_name":
+                page_probe[
+                    "page_name"
+                ],
+
+            "final_url":
+                page_probe[
+                    "final_url"
+                ],
+
+            "error":
+                page_probe[
+                    "error"
+                ],
+
+            "audio_api_configured":
+                audio_api_configured,
+
+            "playback_state":
+                (
+                    "configured"
+                    if audio_api_configured
+                    else
+                    "stream_transport_not_configured"
+                ),
+
+            "playback_model":
+                "continuous_stream",
+
+            "audio_api":
+                audio_api,
+
+            "probed_at":
+                utc_now(),
+        }
 
 
     audio_api = (
@@ -965,6 +1538,9 @@ def broadcastify_api_status():
 
         "client_api":
             status,
+
+        "live_audio":
+            get_live_audio_transport_status(),
     }
 
 
@@ -993,16 +1569,23 @@ def create_source(
     request:
         SourceCreateRequest,
 ):
-    if (
+    requested_type = (
         request.type
-        !=
-        "broadcastify_calls"
+        .strip()
+        .lower()
+    )
+
+
+    if (
+        requested_type
+        not in SUPPORTED_SOURCE_TYPES
     ):
         raise HTTPException(
             status_code=400,
             detail=(
-                "v0.11 currently supports "
-                "broadcastify_calls only"
+                "Supported source types are "
+                "broadcastify_calls and "
+                "broadcastify_live_audio"
             ),
         )
 
@@ -1020,6 +1603,13 @@ def create_source(
             status_code=400,
             detail=str(error),
         ) from error
+
+
+    source_type = (
+        probe[
+            "source_type"
+        ]
+    )
 
 
     now = utc_now()
@@ -1054,7 +1644,7 @@ def create_source(
             name,
 
         "type":
-            "broadcastify_calls",
+            source_type,
 
         "provider":
             "broadcastify",
@@ -1062,16 +1652,6 @@ def create_source(
         "url":
             probe[
                 "canonical_url"
-            ],
-
-        "playlist_uuid":
-            probe[
-                "playlist_uuid"
-            ],
-
-        "view":
-            probe[
-                "view"
             ],
 
         "created_at":
@@ -1083,6 +1663,42 @@ def create_source(
         "probe":
             probe,
     }
+
+
+    if (
+        source_type
+        ==
+        "broadcastify_calls"
+    ):
+        source[
+            "playlist_uuid"
+        ] = (
+            probe[
+                "playlist_uuid"
+            ]
+        )
+
+        source[
+            "view"
+        ] = (
+            probe[
+                "view"
+            ]
+        )
+
+
+    elif (
+        source_type
+        ==
+        "broadcastify_live_audio"
+    ):
+        source[
+            "feed_id"
+        ] = (
+            probe[
+                "feed_id"
+            ]
+        )
 
 
     store = (
@@ -1103,7 +1719,11 @@ def create_source(
     )
 
 
-    return source
+    return (
+        apply_current_audio_api_status(
+            source
+        )
+    )
 
 
 @router.post(
@@ -1160,12 +1780,88 @@ def probe_existing_source(
             ] = utc_now()
 
 
+            detected_type = (
+                probe[
+                    "source_type"
+                ]
+            )
+
+
+            item[
+                "type"
+            ] = detected_type
+
+
+            item[
+                "url"
+            ] = (
+                probe[
+                    "canonical_url"
+                ]
+            )
+
+
+            if (
+                detected_type
+                ==
+                "broadcastify_calls"
+            ):
+                item[
+                    "playlist_uuid"
+                ] = (
+                    probe[
+                        "playlist_uuid"
+                    ]
+                )
+
+                item[
+                    "view"
+                ] = (
+                    probe[
+                        "view"
+                    ]
+                )
+
+                item.pop(
+                    "feed_id",
+                    None,
+                )
+
+
+            elif (
+                detected_type
+                ==
+                "broadcastify_live_audio"
+            ):
+                item[
+                    "feed_id"
+                ] = (
+                    probe[
+                        "feed_id"
+                    ]
+                )
+
+                item.pop(
+                    "playlist_uuid",
+                    None,
+                )
+
+                item.pop(
+                    "view",
+                    None,
+                )
+
+
             save_store(
                 store
             )
 
 
-            return item
+            return (
+                apply_current_audio_api_status(
+                    item
+                )
+            )
 
 
     raise HTTPException(
