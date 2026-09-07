@@ -370,10 +370,7 @@ fi
 cd "$PROJECT_DIR"
 
 
-chmod +x "$PROJECT_DIR/scripts/build-mmdvm-iq.sh"
-
-
-"$PROJECT_DIR/scripts/build-mmdvm-iq.sh"
+bash "$PROJECT_DIR/scripts/build-mmdvm-iq.sh"
 
 
 if [ ! -x "$MMDVM_IQ_DIR/MMDVM-IQ" ]; then
