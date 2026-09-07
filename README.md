@@ -12,10 +12,10 @@ The project combines:
 - an **IMBE vocoder** path for P25,
 - Broadcastify Calls and Broadcastify Live Audio source handling.
 
-The current development focus is **P25 / C4FM end-to-end audio routing** through an SXceiver/SoapySX RF path.
+The current development focus is **P25 / C4FM end-to-end audio routing** across hardware-agnostic MMDVM backends. SXceiver/SoapySX is the first validated SDR path; classic MMDVM UART/USB/GPIO modems are being added as a parallel backend.
 
 > **Project status:** active development / experimental.  
-> P25 end-to-end transmission has been tested. FM, DMR and TETRA configuration exists, but their source-audio bridge paths are not yet at the same level of completion.
+> P25 end-to-end transmission has been validated on SXceiver/SoapySX. RF Gateway is designed to support both SDR-based MMDVM-IQ hardware and conventional MMDVM UART/USB/GPIO modems. FM, DMR and TETRA configuration exists, but their source-audio bridge paths are not yet at the same level of completion.
 
 ---
 
@@ -23,8 +23,11 @@ The current development focus is **P25 / C4FM end-to-end audio routing** through
 
 ### RF and modem stack
 
+- unified RF hardware discovery
+- conventional MMDVM modem discovery over UART/USB/GPIO
 - SoapySDR device discovery
-- SXceiver / SoapySX integration
+- MMDVM-IQ SDR integration
+- SXceiver / SoapySX integration as the first validated SDR path
 - MMDVM-IQ process management
 - MMDVM-Host process management
 - runtime generation of MMDVM-Host configuration
@@ -295,7 +298,74 @@ Main dependencies include:
 - MMDVM-Host
 - IMBE vocoder sources
 
-For the tested RF path, an SXceiver/SoapySX-compatible device is expected.
+RF Gateway supports two MMDVM hardware paths:
+
+- **MMDVM UART/USB/GPIO** — conventional MMDVM-compatible modems such as MMDVM_HS, MMDVM_HS Dual Hat, ZUMspot, DVMEGA and generic MMDVM boards. MMDVM-Host talks directly to the modem using its `uart` backend.
+- **MMDVM-IQ / SoapySDR** — SDR hardware supported by the installed SoapySDR driver and MMDVM-IQ. SXceiver/SoapySX is the first validated SDR path.
+
+Hardware support is capability-driven. A detected device may still reject a frequency or mode that its RF hardware or modem firmware does not support.
+
+---
+
+# Hardware backends
+
+## Conventional MMDVM modems
+
+RF Gateway can discover serial MMDVM candidates from locations including:
+
+```text
+/dev/serial/by-id/*
+/dev/ttyACM*
+/dev/ttyUSB*
+/dev/ttyAMA*
+/dev/serial0
+/dev/serial1
+```
+
+The first profile set is modeled after common Pi-Star hardware families:
+
+```text
+MMDVM_HS
+MMDVM_HS Dual Hat
+ZUMspot GPIO
+ZUMspot USB
+DVMEGA
+generic MMDVM USB/UART
+generic MMDVM GPIO/UART
+```
+
+These devices use the current MMDVM-Host UART configuration model:
+
+```ini
+[Modem]
+Protocol=uart
+UARTPort=/dev/ttyACM0
+UARTSpeed=115200
+```
+
+Device names are treated as profiles/hints. Actual protocol and RF-band support is determined by the connected modem firmware and RF hardware.
+
+## MMDVM-IQ / SoapySDR
+
+SDR-backed devices use MMDVM-IQ and SoapySDR.
+
+The RF Gateway MMDVM-IQ build currently allows these application-level amateur-band windows:
+
+```text
+144.000-148.000 MHz  US 2 m amateur profile
+420.000-450.000 MHz  existing upstream UHF range
+```
+
+The build script is:
+
+```bash
+chmod +x scripts/build-mmdvm-iq.sh
+./scripts/build-mmdvm-iq.sh
+```
+
+The patch is applied only for compilation and the checked-out MMDVM-IQ submodule source is restored afterward.
+
+This does **not** imply that every SDR can transmit across those entire ranges. The selected SoapySDR hardware/driver must also support the requested frequency, and the operator remains responsible for legal band and emission use.
 
 ---
 
@@ -346,7 +416,7 @@ The installer performs the main development setup:
 - initializes Git submodules,
 - creates `backend/.venv`,
 - installs Python dependencies,
-- builds MMDVM-IQ,
+- builds MMDVM-IQ with the RF Gateway amateur-band frequency profile,
 - builds MMDVM-Host,
 - installs frontend dependencies,
 - verifies the frontend production build,
@@ -494,7 +564,31 @@ npm run build
 
 # MMDVM runtime
 
-RF Gateway manages MMDVM-IQ and MMDVM-Host from the backend.
+RF Gateway selects the MMDVM runtime path from the chosen RF device.
+
+For an SDR device:
+
+```text
+RF Gateway
+  -> MMDVM-Host
+  -> UDP
+  -> MMDVM-IQ
+  -> SoapySDR
+  -> SDR
+  -> RF
+```
+
+For a conventional MMDVM modem:
+
+```text
+RF Gateway
+  -> MMDVM-Host
+  -> UART / USB / GPIO serial
+  -> MMDVM modem
+  -> RF
+```
+
+MMDVM-IQ is therefore required only for SDR-backed devices.
 
 Avoid starting another copy of MMDVM-IQ or MMDVM-Host manually while the backend-managed RF runtime is active.
 
@@ -576,7 +670,7 @@ OpenAPI schema:
 http://localhost:8000/openapi.json
 ```
 
-The API version currently used by the backend is `0.11.x`.
+The API version currently used by the backend is `0.12.x`.
 
 ---
 
@@ -650,7 +744,7 @@ curl -s -X PUT \
 
 ### `GET /api/devices`
 
-Discover currently available SoapySDR devices.
+Discover currently available RF hardware, including SoapySDR devices and MMDVM-compatible UART/USB/GPIO modems.
 
 ```bash
 curl -s \
@@ -678,7 +772,7 @@ Configure direct SoapySDR parameters.
 
 Close a directly managed device.
 
-Direct Soapy access is intentionally blocked while the MMDVM runtime owns the SXceiver.
+Direct Soapy access is intentionally blocked while the MMDVM runtime owns the selected SDR hardware.
 
 ---
 
