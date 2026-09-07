@@ -117,6 +117,16 @@ class MMDVMProcessManager:
             | None
         ) = None
 
+        self._device: (
+            dict[str, Any]
+            | None
+        ) = None
+
+        self._open_driver: (
+            str
+            | None
+        ) = None
+
         self._last_error: (
             str
             | None
@@ -659,32 +669,34 @@ class MMDVMProcessManager:
 
     def _check_paths(
         self,
+        *,
+        device: dict[str, Any],
     ) -> None:
-        required_paths = (
-            MMDVM_IQ_BINARY,
-            MMDVM_HOST_BINARY,
-            MMDVM_IQ_CONFIG,
-        )
+        backend = str(
+            device.get(
+                "backend",
+                "",
+            )
+        ).strip().lower()
 
-        for path in (
-            required_paths
-        ):
+        required_paths = [
+            MMDVM_HOST_BINARY,
+        ]
+
+        if backend != "mmdvm_uart":
+            required_paths.extend(
+                [
+                    MMDVM_IQ_BINARY,
+                    MMDVM_IQ_CONFIG,
+                ]
+            )
+
+        for path in required_paths:
             if not path.exists():
                 raise RuntimeError(
                     f"Missing required "
                     f"MMDVM file: {path}"
                 )
-
-
-        if not os.access(
-            MMDVM_IQ_BINARY,
-            os.X_OK,
-        ):
-            raise RuntimeError(
-                "MMDVM-IQ binary is "
-                "not executable"
-            )
-
 
         if not os.access(
             MMDVM_HOST_BINARY,
@@ -695,10 +707,73 @@ class MMDVMProcessManager:
                 "not executable"
             )
 
+        if (
+            backend != "mmdvm_uart"
+            and not os.access(
+                MMDVM_IQ_BINARY,
+                os.X_OK,
+            )
+        ):
+            raise RuntimeError(
+                "MMDVM-IQ binary is "
+                "not executable"
+            )
+
+        if backend == "mmdvm_uart":
+            capabilities = (
+                device.get(
+                    "capabilities"
+                )
+                or {}
+            )
+
+            uart_port = str(
+                capabilities.get(
+                    "uart_port",
+                    "",
+                )
+            ).strip()
+
+            if not uart_port:
+                raise RuntimeError(
+                    "MMDVM UART device has "
+                    "no serial port"
+                )
+
+            if not os.path.exists(
+                uart_port
+            ):
+                raise RuntimeError(
+                    "MMDVM UART port does "
+                    f"not exist: {uart_port}"
+                )
+
+            if not os.access(
+                uart_port,
+                os.R_OK | os.W_OK,
+            ):
+                raise RuntimeError(
+                    "MMDVM UART port is not "
+                    "read/write accessible: "
+                    f"{uart_port}"
+                )
+
 
     def _check_ports_free(
         self,
+        *,
+        device: dict[str, Any],
     ) -> None:
+        backend = str(
+            device.get(
+                "backend",
+                "",
+            )
+        ).strip().lower()
+
+        if backend == "mmdvm_uart":
+            return
+
         for port in (
             3334,
             3335,
@@ -776,6 +851,7 @@ class MMDVMProcessManager:
         protocol: str,
         settings: dict[str, Any],
         *,
+        device: dict[str, Any],
         callsign: str = "SP5OPS",
     ) -> dict[str, Any]:
         with self._lock:
@@ -785,29 +861,31 @@ class MMDVMProcessManager:
                     "already active"
                 )
 
-
             validate_runtime_mode(
                 protocol,
                 settings,
             )
 
-            self._check_paths()
-            self._check_ports_free()
+            self._check_paths(
+                device=device
+            )
 
+            self._check_ports_free(
+                device=device
+            )
 
             RUNTIME_DIR.mkdir(
                 parents=True,
                 exist_ok=True,
             )
 
-
             write_mmdvm_host_config(
                 MMDVM_HOST_RUNTIME_CONFIG,
                 protocol,
                 settings,
                 callsign=callsign,
+                device=device,
             )
-
 
             MMDVM_IQ_LOG.write_text(
                 "",
@@ -819,68 +897,95 @@ class MMDVMProcessManager:
                 encoding="utf-8",
             )
 
-
-            self._protocol = (
-                protocol
-            )
-
+            self._protocol = protocol
             self._settings = dict(
                 settings
             )
-
+            self._device = dict(
+                device
+            )
             self._last_error = None
+            self._open_driver = None
 
+            backend = str(
+                device.get(
+                    "backend",
+                    "",
+                )
+            ).strip().lower()
+
+            capabilities = (
+                device.get(
+                    "capabilities"
+                )
+                or {}
+            )
+
+            iq_required = bool(
+                capabilities.get(
+                    "mmdvm_iq_required",
+                    backend != "mmdvm_uart",
+                )
+            )
 
             try:
-                mark_driver_open(
-                    "sx"
-                )
+                if iq_required:
+                    driver = str(
+                        device.get(
+                            "driver",
+                            "",
+                        )
+                    ).strip()
 
+                    if driver:
+                        mark_driver_open(
+                            driver
+                        )
+                        self._open_driver = (
+                            driver
+                        )
 
-                self._iq_log_handle = (
-                    MMDVM_IQ_LOG.open(
-                        "a",
-                        encoding="utf-8",
-                        buffering=1,
+                    self._iq_log_handle = (
+                        MMDVM_IQ_LOG.open(
+                            "a",
+                            encoding="utf-8",
+                            buffering=1,
+                        )
                     )
-                )
 
-
-                self._iq_process = (
-                    subprocess.Popen(
-                        [
-                            str(
-                                MMDVM_IQ_BINARY
+                    self._iq_process = (
+                        subprocess.Popen(
+                            [
+                                str(
+                                    MMDVM_IQ_BINARY
+                                ),
+                                str(
+                                    MMDVM_IQ_CONFIG
+                                ),
+                            ],
+                            cwd=str(
+                                MMDVM_IQ_DIR
                             ),
-                            str(
-                                MMDVM_IQ_CONFIG
+                            stdin=(
+                                subprocess.DEVNULL
                             ),
-                        ],
-                        cwd=str(
-                            MMDVM_IQ_DIR
-                        ),
-                        stdin=(
-                            subprocess.DEVNULL
-                        ),
-                        stdout=(
-                            self._iq_log_handle
-                        ),
-                        stderr=(
-                            subprocess.STDOUT
-                        ),
-                        start_new_session=True,
+                            stdout=(
+                                self._iq_log_handle
+                            ),
+                            stderr=(
+                                subprocess.STDOUT
+                            ),
+                            start_new_session=True,
+                        )
                     )
-                )
 
-
-                self._wait_for_udp_port(
-                    port=3334,
-                    process=self._iq_process,
-                    process_name="MMDVM-IQ",
-                    timeout=5.0,
-                    log_path=MMDVM_IQ_LOG,
-                )
-
+                    self._wait_for_udp_port(
+                        port=3334,
+                        process=self._iq_process,
+                        process_name="MMDVM-IQ",
+                        timeout=5.0,
+                        log_path=MMDVM_IQ_LOG,
+                    )
 
                 self._host_log_handle = (
                     MMDVM_HOST_LOG.open(
@@ -889,7 +994,6 @@ class MMDVMProcessManager:
                         buffering=1,
                     )
                 )
-
 
                 self._host_process = (
                     subprocess.Popen(
@@ -917,29 +1021,25 @@ class MMDVMProcessManager:
                     )
                 )
 
-
-                self._wait_for_udp_port(
-                    port=3335,
-                    process=self._host_process,
-                    process_name="MMDVM-Host",
-                    timeout=5.0,
-                    log_path=MMDVM_HOST_LOG,
-                )
-
+                if iq_required:
+                    self._wait_for_udp_port(
+                        port=3335,
+                        process=self._host_process,
+                        process_name="MMDVM-Host",
+                        timeout=5.0,
+                        log_path=MMDVM_HOST_LOG,
+                    )
 
                 self._wait_for_host_ready(
                     timeout=10.0
                 )
 
-
                 return self.status()
-
 
             except Exception as error:
                 self._last_error = str(
                     error
                 )
-
 
                 self._stop_process(
                     self._host_process
@@ -949,18 +1049,17 @@ class MMDVMProcessManager:
                     self._iq_process
                 )
 
-
                 self._host_process = None
                 self._iq_process = None
 
-
                 self._close_log_handles()
 
+                if self._open_driver:
+                    mark_driver_closed(
+                        self._open_driver
+                    )
 
-                mark_driver_closed(
-                    "sx"
-                )
-
+                self._open_driver = None
 
                 raise
 
@@ -977,22 +1076,21 @@ class MMDVMProcessManager:
                 self._iq_process
             )
 
-
             self._host_process = None
             self._iq_process = None
 
-
             self._close_log_handles()
 
+            if self._open_driver:
+                mark_driver_closed(
+                    self._open_driver
+                )
 
-            mark_driver_closed(
-                "sx"
-            )
-
+            self._open_driver = None
 
             self._protocol = None
             self._settings = None
-
+            self._device = None
 
             return self.status()
 
@@ -1001,14 +1099,44 @@ class MMDVMProcessManager:
     def is_running(
         self,
     ) -> bool:
-        return (
-            self._process_running(
-                self._iq_process
-            )
-            and
+        host_running = (
             self._process_running(
                 self._host_process
             )
+        )
+
+        if not host_running:
+            return False
+
+        device = (
+            self._device
+            or {}
+        )
+
+        capabilities = (
+            device.get(
+                "capabilities"
+            )
+            or {}
+        )
+
+        iq_required = bool(
+            capabilities.get(
+                "mmdvm_iq_required",
+                (
+                    device.get(
+                        "backend"
+                    )
+                    != "mmdvm_uart"
+                ),
+            )
+        )
+
+        if not iq_required:
+            return True
+
+        return self._process_running(
+            self._iq_process
         )
 
 
@@ -1028,12 +1156,40 @@ class MMDVMProcessManager:
                 )
             )
 
-
-            runtime_active = (
-                iq_running
-                and host_running
+            device = (
+                self._device
+                or {}
             )
 
+            capabilities = (
+                device.get(
+                    "capabilities"
+                )
+                or {}
+            )
+
+            backend = str(
+                device.get(
+                    "backend",
+                    "",
+                )
+            ).strip().lower()
+
+            iq_required = bool(
+                capabilities.get(
+                    "mmdvm_iq_required",
+                    backend != "mmdvm_uart",
+                )
+            )
+
+            runtime_active = (
+                host_running
+                and (
+                    iq_running
+                    if iq_required
+                    else True
+                )
+            )
 
             iq_telemetry = (
                 self._parse_iq_telemetry(
@@ -1041,13 +1197,11 @@ class MMDVMProcessManager:
                 )
             )
 
-
             host_ready = (
                 self._host_ready(
                     host_running=host_running,
                 )
             )
-
 
             channel_frequency_hz = (
                 self._settings.get(
@@ -1057,25 +1211,26 @@ class MMDVMProcessManager:
                 else None
             )
 
-
             sdr_tx_center_frequency_hz = (
                 iq_telemetry[
                     "sdr_tx_center_frequency_hz"
                 ]
+                if iq_required
+                else None
             )
 
             sdr_rx_center_frequency_hz = (
                 iq_telemetry[
                     "sdr_rx_center_frequency_hz"
                 ]
+                if iq_required
+                else None
             )
-
 
             digital_if_hz: (
                 int
                 | None
             ) = None
-
 
             if (
                 channel_frequency_hz
@@ -1094,31 +1249,43 @@ class MMDVMProcessManager:
                     )
                 )
 
-
             rf_tx_active = bool(
                 iq_telemetry[
                     "rf_tx_active"
                 ]
-            )
+            ) if iq_required else False
 
+            runtime_ready = (
+                runtime_active
+                and host_ready
+                and (
+                    bool(
+                        iq_telemetry[
+                            "ready"
+                        ]
+                    )
+                    if iq_required
+                    else True
+                )
+            )
 
             return {
                 "runtime_active":
                     runtime_active,
 
                 "runtime_ready":
-                    (
-                        runtime_active
-                        and host_ready
-                        and bool(
-                            iq_telemetry[
-                                "ready"
-                            ]
-                        )
-                    ),
+                    runtime_ready,
 
                 "protocol":
                     self._protocol,
+
+                "backend":
+                    backend or None,
+
+                "device_id":
+                    device.get(
+                        "id"
+                    ),
 
                 "frequency_hz":
                     channel_frequency_hz,
@@ -1136,69 +1303,105 @@ class MMDVMProcessManager:
                     digital_if_hz,
 
                 "sample_rate_hz":
-                    iq_telemetry[
-                        "sample_rate_hz"
-                    ],
+                    (
+                        iq_telemetry[
+                            "sample_rate_hz"
+                        ]
+                        if iq_required
+                        else None
+                    ),
 
                 "actual_tx_rate_hz":
-                    iq_telemetry[
-                        "actual_tx_rate_hz"
-                    ],
+                    (
+                        iq_telemetry[
+                            "actual_tx_rate_hz"
+                        ]
+                        if iq_required
+                        else None
+                    ),
 
                 "actual_rx_rate_hz":
-                    iq_telemetry[
-                        "actual_rx_rate_hz"
-                    ],
+                    (
+                        iq_telemetry[
+                            "actual_rx_rate_hz"
+                        ]
+                        if iq_required
+                        else None
+                    ),
 
                 "modem_mode":
-                    iq_telemetry[
-                        "modem_mode"
-                    ],
+                    (
+                        iq_telemetry[
+                            "modem_mode"
+                        ]
+                        if iq_required
+                        else None
+                    ),
 
                 "rf_tx_active":
                     rf_tx_active,
 
-                #
-                # Deprecated compatibility alias.
-                # This now reflects real MMDVM-IQ
-                # RF TX state, not runtime state.
-                #
                 "tx_stream_active":
                     rf_tx_active,
 
                 "hardware_open":
-                    bool(
-                        iq_telemetry[
-                            "hardware_open"
-                        ]
+                    (
+                        bool(
+                            iq_telemetry[
+                                "hardware_open"
+                            ]
+                        )
+                        if iq_required
+                        else host_running
                     ),
 
                 "iq_streams_active":
-                    bool(
-                        iq_telemetry[
-                            "iq_streams_active"
-                        ]
+                    (
+                        bool(
+                            iq_telemetry[
+                                "iq_streams_active"
+                            ]
+                        )
+                        if iq_required
+                        else False
                     ),
 
                 "hardware_version":
-                    iq_telemetry[
-                        "hardware_version"
-                    ],
+                    (
+                        iq_telemetry[
+                            "hardware_version"
+                        ]
+                        if iq_required
+                        else capabilities.get(
+                            "profile"
+                        )
+                    ),
 
                 "driver_name":
-                    iq_telemetry[
-                        "driver_name"
-                    ],
+                    (
+                        iq_telemetry[
+                            "driver_name"
+                        ]
+                        if iq_required
+                        else "mmdvm_uart"
+                    ),
 
                 "mmdvm_iq": {
+                    "required":
+                        iq_required,
+
                     "running":
                         iq_running,
 
                     "ready":
-                        bool(
-                            iq_telemetry[
-                                "ready"
-                            ]
+                        (
+                            bool(
+                                iq_telemetry[
+                                    "ready"
+                                ]
+                            )
+                            if iq_required
+                            else True
                         ),
 
                     "pid":
@@ -1213,7 +1416,11 @@ class MMDVMProcessManager:
                         ),
 
                     "udp_port":
-                        3334,
+                        (
+                            3334
+                            if iq_required
+                            else None
+                        ),
                 },
 
                 "mmdvm_host": {
@@ -1235,7 +1442,23 @@ class MMDVMProcessManager:
                         ),
 
                     "udp_port":
-                        3335,
+                        (
+                            3335
+                            if iq_required
+                            else None
+                        ),
+
+                    "modem_protocol":
+                        (
+                            "udp"
+                            if iq_required
+                            else "uart"
+                        ),
+
+                    "uart_port":
+                        capabilities.get(
+                            "uart_port"
+                        ),
                 },
 
                 "runtime_config":

@@ -82,8 +82,10 @@ from app.mmdvm.control import (
 )
 
 from app.rf import (
-    discover_soapy_devices,
+    discover_rf_devices,
+    get_rf_device,
     rf_device_manager,
+    validate_device_frequency,
 )
 
 from app.sources import (
@@ -95,7 +97,7 @@ from app.routes import (
 )
 
 
-API_VERSION = "0.11.0"
+API_VERSION = "0.12.0"
 
 
 ModeProtocol = Literal[
@@ -367,7 +369,7 @@ def device_exists(
     device_id: str,
 ) -> bool:
     discovery = (
-        discover_soapy_devices()
+        discover_rf_devices()
     )
 
     for device in discovery.get(
@@ -401,7 +403,7 @@ def ensure_direct_soapy_available():
         raise HTTPException(
             status_code=409,
             detail=(
-                "SXceiver is owned by "
+                "RF hardware is owned by "
                 "the MMDVM runtime"
             ),
         )
@@ -524,12 +526,12 @@ def save_mode_config(
 
 @app.get("/api/devices")
 def get_devices():
-    return discover_soapy_devices()
+    return discover_rf_devices()
 
 
 @app.post("/api/devices/refresh")
 def refresh_devices():
-    return discover_soapy_devices()
+    return discover_rf_devices()
 
 
 @app.post(
@@ -849,8 +851,20 @@ async def rf_start(
             ),
         )
 
-    if not device_exists(
+    device = get_rf_device(
         request.device_id
+    )
+
+    if (
+        device is None
+        or not device.get(
+            "available",
+            False,
+        )
+        or not device.get(
+            "probe_ok",
+            False,
+        )
     ):
         raise HTTPException(
             status_code=400,
@@ -869,6 +883,15 @@ async def rf_start(
         validate_runtime_mode(
             request.protocol,
             request_data,
+        )
+
+        validate_device_frequency(
+            device,
+            int(
+                request_data[
+                    "frequency_hz"
+                ]
+            ),
         )
 
     except ValueError as error:
@@ -908,6 +931,7 @@ async def rf_start(
             .start(
                 request.protocol,
                 request_data,
+                device=device,
                 callsign="SP5OPS",
             )
         )
