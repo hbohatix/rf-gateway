@@ -110,7 +110,7 @@ def validate_runtime_mode(
     if protocol == "tetra":
         raise ValueError(
             "TETRA is not supported by the "
-            "MMDVM-IQ backend"
+            "current MMDVM runtime"
         )
 
     if protocol == "fm":
@@ -181,8 +181,8 @@ def validate_runtime_mode(
 
         if modulation != "c4fm":
             raise ValueError(
-                "Current MMDVM-IQ P25 runtime "
-                "supports the C4FM path only"
+                "Current P25 runtime supports "
+                "the C4FM path only"
             )
 
 
