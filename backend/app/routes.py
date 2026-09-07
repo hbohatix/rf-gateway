@@ -41,7 +41,7 @@ from app.config_store import (
 )
 
 from app.rf import (
-    discover_soapy_devices,
+    discover_rf_devices,
 )
 
 from app.route_runtime import (
@@ -335,7 +335,7 @@ def get_device_or_404(
 ) -> dict:
     try:
         discovery = (
-            discover_soapy_devices()
+            discover_rf_devices()
         )
 
     except Exception as error:
