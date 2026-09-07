@@ -19,6 +19,20 @@ export type RFDeviceCapabilities = {
 
   rx_sample_rates?: string;
   tx_sample_rates?: string;
+
+  connection?: string;
+  profile?: string;
+
+  uart_port?: string;
+  uart_resolved_port?: string;
+  uart_speed?: number;
+
+  mmdvm_compatible?: boolean;
+  mmdvm_host_protocol?: string;
+  mmdvm_iq_required?: boolean;
+
+  frequency_policy?: string;
+  frequency_ranges_hz?: number[][];
 };
 
 
@@ -48,6 +62,8 @@ export type RFDevicesResponse = {
   device_count: number;
 
   devices: RFDevice[];
+
+  warnings?: string[];
 
   error: string | null;
 };
