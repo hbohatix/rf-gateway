@@ -359,8 +359,7 @@ The RF Gateway MMDVM-IQ build currently allows these application-level amateur-b
 The build script is:
 
 ```bash
-chmod +x scripts/build-mmdvm-iq.sh
-./scripts/build-mmdvm-iq.sh
+bash scripts/build-mmdvm-iq.sh
 ```
 
 The patch is applied only for compilation and the checked-out MMDVM-IQ submodule source is restored afterward.
