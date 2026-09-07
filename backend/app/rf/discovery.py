@@ -467,3 +467,76 @@ def get_rf_device(
             )
 
     return None
+
+
+def validate_device_frequency(
+    device: dict[str, Any],
+    frequency_hz: int,
+) -> None:
+    capabilities = (
+        device.get(
+            "capabilities"
+        )
+        or {}
+    )
+
+    ranges = (
+        capabilities.get(
+            "frequency_ranges_hz"
+        )
+        or []
+    )
+
+    if not ranges:
+        return
+
+    frequency_hz = int(
+        frequency_hz
+    )
+
+    for value in ranges:
+        if (
+            isinstance(
+                value,
+                list,
+            )
+            and len(value) == 2
+        ):
+            low = int(
+                value[0]
+            )
+            high = int(
+                value[1]
+            )
+
+            if (
+                low
+                <= frequency_hz
+                <= high
+            ):
+                return
+
+    formatted_ranges = ", ".join(
+        (
+            f"{int(value[0]) / 1_000_000:.3f}-"
+            f"{int(value[1]) / 1_000_000:.3f} MHz"
+        )
+        for value in ranges
+        if (
+            isinstance(
+                value,
+                list,
+            )
+            and len(value) == 2
+        )
+    )
+
+    raise ValueError(
+        (
+            f"Frequency "
+            f"{frequency_hz / 1_000_000:.6f} MHz "
+            f"is not supported by the selected "
+            f"RF backend. Supported ranges: "
+            f"{formatted_ranges}"
+        )
+    )
