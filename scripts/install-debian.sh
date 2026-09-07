@@ -367,10 +367,13 @@ if [ ! -d "$MMDVM_IQ_DIR" ]; then
 fi
 
 
-cd "$MMDVM_IQ_DIR"
+cd "$PROJECT_DIR"
 
 
-make -j"$(nproc)"
+chmod +x "$PROJECT_DIR/scripts/build-mmdvm-iq.sh"
+
+
+"$PROJECT_DIR/scripts/build-mmdvm-iq.sh"
 
 
 if [ ! -x "$MMDVM_IQ_DIR/MMDVM-IQ" ]; then
