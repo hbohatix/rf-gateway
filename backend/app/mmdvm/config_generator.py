@@ -191,6 +191,7 @@ def render_mmdvm_host_config(
     settings: dict[str, Any],
     *,
     callsign: str,
+    device: dict[str, Any] | None = None,
 ) -> str:
     protocol = (
         protocol
@@ -248,6 +249,74 @@ def render_mmdvm_host_config(
         if protocol == "p25"
         else "293"
     )
+
+    device = (
+        device
+        or {}
+    )
+
+    device_backend = str(
+        device.get(
+            "backend",
+            "soapysdr",
+        )
+    ).strip().lower()
+
+    device_capabilities = (
+        device.get(
+            "capabilities"
+        )
+        or {}
+    )
+
+    if device_backend == "mmdvm_uart":
+        uart_port = str(
+            device_capabilities.get(
+                "uart_port",
+                "",
+            )
+        ).strip()
+
+        uart_speed = int(
+            device_capabilities.get(
+                "uart_speed",
+                115200,
+            )
+        )
+
+        if not uart_port:
+            raise ValueError(
+                "MMDVM UART device has no UART port"
+            )
+
+        modem_connection = (
+            "Protocol=uart\n"
+            f"UARTPort={uart_port}\n"
+            f"UARTSpeed={uart_speed}"
+        )
+
+        modem_description = str(
+            device.get(
+                "label",
+                "MMDVM UART modem",
+            )
+        ).strip()
+
+    else:
+        modem_connection = (
+            "Protocol=udp\n"
+            "ModemAddress=127.0.0.1\n"
+            "ModemPort=3334\n"
+            "LocalAddress=127.0.0.1\n"
+            "LocalPort=3335"
+        )
+
+        modem_description = str(
+            device.get(
+                "label",
+                "MMDVM-IQ / SoapySDR",
+            )
+        ).strip()
 
     runtime_comments: list[str] = [
         "# ------------------------------------------------------------",
@@ -328,7 +397,7 @@ Latitude=0.0
 Longitude=0.0
 Height=0
 Location=RF Gateway
-Description=RF Gateway SXceiver
+Description=RF Gateway - {modem_description}
 URL=
 
 [Log]
@@ -354,11 +423,7 @@ Time=10
 Callsign={callsign}
 
 [Modem]
-Protocol=udp
-ModemAddress=127.0.0.1
-ModemPort=3334
-LocalAddress=127.0.0.1
-LocalPort=3335
+{modem_connection}
 
 RXFrequency={frequency_hz}
 TXFrequency={frequency_hz}
@@ -436,6 +501,7 @@ def write_mmdvm_host_config(
     settings: dict[str, Any],
     *,
     callsign: str,
+    device: dict[str, Any] | None = None,
 ) -> Path:
     output_path.parent.mkdir(
         parents=True,
@@ -447,6 +513,7 @@ def write_mmdvm_host_config(
             protocol,
             settings,
             callsign=callsign,
+            device=device,
         )
     )
 
