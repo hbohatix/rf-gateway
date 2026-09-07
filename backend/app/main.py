@@ -85,6 +85,7 @@ from app.rf import (
     discover_rf_devices,
     get_rf_device,
     rf_device_manager,
+    validate_device_frequency,
 )
 
 from app.sources import (
@@ -882,6 +883,15 @@ async def rf_start(
         validate_runtime_mode(
             request.protocol,
             request_data,
+        )
+
+        validate_device_frequency(
+            device,
+            int(
+                request_data[
+                    "frequency_hz"
+                ]
+            ),
         )
 
     except ValueError as error:
