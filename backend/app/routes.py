@@ -24,6 +24,11 @@ from app.broadcastify_live_audio_pipeline import (
     broadcastify_live_audio_pipeline_manager,
 )
 
+from app.broadcastify_live_audio_client import (
+    BroadcastifyLiveAudioError,
+    broadcastify_live_audio_client,
+)
+
 from app.broadcastify_worker import (
     broadcastify_worker_manager,
 )
@@ -434,6 +439,34 @@ def run_preflight(
             ]
         )
     )
+
+    # A reachable Broadcastify page and an installed decoder do
+    # not guarantee that an HLS listening session is available.
+    # Check only when a live-audio route is explicitly preflighted.
+    probe = source.get("probe") or {}
+
+    if (
+        route.get("enabled", False)
+        and source.get("type") == "broadcastify_live_audio"
+        and probe.get("reachable", False)
+        and probe.get("audio_api_configured", False)
+    ):
+        try:
+            broadcastify_live_audio_client.resolve_session(
+                int(source["feed_id"])
+            )
+        except (
+            BroadcastifyLiveAudioError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
+            source["probe"] = {
+                **probe,
+                "audio_api_configured": False,
+                "playback_state": "stream_unavailable",
+                "playback_error": str(error),
+            }
 
     return (
         route_runtime_manager
