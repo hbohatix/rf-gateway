@@ -221,7 +221,7 @@ type RoutesPanelProps = {
   onRoutesChanged?: (
     count: number
   ) => void;
-  onSourceCreated?: () => void;
+  onSourcesChanged?: () => void;
 };
 
 
@@ -714,7 +714,7 @@ function getApiError(
 function RoutesPanel({
   apiBaseUrl,
   onRoutesChanged,
-  onSourceCreated,
+  onSourcesChanged,
 }: RoutesPanelProps) {
   const [
     routes,
@@ -1375,7 +1375,7 @@ function RoutesPanel({
       setRouteName("");
       setStartNow(false);
       await refreshAll();
-      if (data?.source_created) onSourceCreated?.();
+      if (data?.source_created) onSourcesChanged?.();
 
       if (startNow && data?.start) {
         const startStatus = data.start as {
@@ -1527,7 +1527,7 @@ function RoutesPanel({
 
       setEditingRouteId(null);
       await refreshAll();
-      if (data?.source_created) onSourceCreated?.();
+      if (data?.source_created) onSourcesChanged?.();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to save route");
     } finally {
@@ -1579,7 +1579,7 @@ function RoutesPanel({
         }
 
         const deleted = await readApiObject(response);
-        if (deleted?.source_deleted) onSourceCreated?.();
+        if (deleted?.source_deleted) onSourcesChanged?.();
         if (deleted?.source_cleanup_error) {
           setError(
             `Route deleted; source cleanup failed: ${deleted.source_cleanup_error}`
