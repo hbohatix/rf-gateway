@@ -2208,6 +2208,112 @@ function RoutesPanel({
 
                     {expanded && (
                       <>
+                        {editingRouteId === route.id && (
+                          <div className="route-edit">
+                            <div className="route-edit__heading">
+                              <strong>Edit route</strong>
+                              <span>Save does not start RF. Stop the route before editing.</span>
+                            </div>
+                            <div className="route-edit__grid">
+                              <label>
+                                <span>Name</span>
+                                <input
+                                  type="text"
+                                  maxLength={120}
+                                  value={editRouteName}
+                                  onChange={(event) => setEditRouteName(event.target.value)}
+                                />
+                              </label>
+                              <label>
+                                <span>Source selection</span>
+                                <select
+                                  value={editSourceMode}
+                                  onChange={(event) => setEditSourceMode(
+                                    event.target.value as "saved" | "url"
+                                  )}
+                                >
+                                  <option value="saved">Saved source</option>
+                                  <option value="url">New source URL</option>
+                                </select>
+                              </label>
+                              {editSourceMode === "saved" ? (
+                                <label className="route-edit__wide">
+                                  <span>Source</span>
+                                  <select
+                                    value={editSourceId}
+                                    onChange={(event) => setEditSourceId(event.target.value)}
+                                  >
+                                    {sources.map((item) => (
+                                      <option key={item.id} value={item.id}>
+                                        {getSourceDisplayName(item)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : (
+                                <label className="route-edit__wide">
+                                  <span>Broadcastify playlist or feed URL</span>
+                                  <input
+                                    type="url"
+                                    value={editSourceUrl}
+                                    placeholder="https://www.broadcastify.com/calls/playlists/?uuid=..."
+                                    onChange={(event) => setEditSourceUrl(event.target.value)}
+                                  />
+                                  <small>Shared sources are reused. Other routes are not modified.</small>
+                                </label>
+                              )}
+                              <label>
+                                <span>RF Device</span>
+                                <select
+                                  value={editDeviceId}
+                                  onChange={(event) => setEditDeviceId(event.target.value)}
+                                >
+                                  {!devices.some((item) => item.id === editDeviceId) && (
+                                    <option value={editDeviceId}>
+                                      {editDeviceId} (not currently available)
+                                    </option>
+                                  )}
+                                  {devices.map((item) => (
+                                    <option key={item.id} value={item.id}>
+                                      {getDeviceDisplayName(item)} · {item.id}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>Protocol</span>
+                                <select
+                                  value={editProtocol}
+                                  onChange={(event) => setEditProtocol(
+                                    event.target.value as Protocol
+                                  )}
+                                >
+                                  {PROTOCOLS.map((item) => (
+                                    <option key={item} value={item}>
+                                      {item.toUpperCase()}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <div className="route-edit__actions">
+                              <button
+                                type="button"
+                                disabled={busy || running}
+                                onClick={() => { void saveEditedRoute(route); }}
+                              >
+                                {busy ? "SAVING..." : "SAVE CHANGES"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setEditingRouteId(null)}
+                              >
+                                CANCEL
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         <div
                           style={{
                             display:
@@ -2674,6 +2780,17 @@ function RoutesPanel({
                             {route.enabled
                               ? "DISABLE"
                               : "ENABLE"}
+                          </button>
+
+
+                          <button
+                            type="button"
+                            disabled={busy || running}
+                            onClick={() => editingRouteId === route.id
+                              ? setEditingRouteId(null)
+                              : openRouteEditor(route)}
+                          >
+                            {editingRouteId === route.id ? "CANCEL EDIT" : "EDIT"}
                           </button>
 
 
