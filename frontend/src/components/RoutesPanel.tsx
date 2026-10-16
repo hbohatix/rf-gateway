@@ -2543,8 +2543,6 @@ function RoutesPanel({
                               className="route-card__worker-start"
                               disabled={
                                 busy
-                                ||
-                                !route.enabled
                               }
                               onClick={
                                 () => {
