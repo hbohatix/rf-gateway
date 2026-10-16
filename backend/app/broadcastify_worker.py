@@ -230,6 +230,7 @@ class BroadcastifyWorker:
                 self.source.get(
                     "playlist_uuid"
                 ),
+            "group_ids": self.source.get("group_ids") or [],
 
             "state":
                 "stopped",
@@ -529,15 +530,18 @@ class BroadcastifyWorker:
         )
 
 
-        if not playlist_uuid:
+        groups = self.source.get("group_ids") or []
+        if bool(playlist_uuid) == bool(groups):
             raise ValueError(
-                (
-                    "Source does not contain "
-                    "playlist_uuid"
-                )
+                "Calls source requires exactly one playlist UUID or group IDs"
             )
+        if groups:
+            from app.sources import normalize_calls_selection
+            normalized = normalize_calls_selection(group_ids=groups)
+            self._group_ids = normalized["group_ids"]
+            return ""
 
-
+        self._group_ids = []
         return playlist_uuid
 
 
@@ -878,8 +882,10 @@ class BroadcastifyWorker:
             payload = (
                 self.client
                 .get_live_calls(
-                    playlist_uuid=(
-                        playlist_uuid
+                    playlist_uuid=playlist_uuid or None,
+                    group_id=(
+                        ",".join(self._group_ids)
+                        if self._group_ids else None
                     ),
                     extra_query={
                         "pos": requested_pos,
