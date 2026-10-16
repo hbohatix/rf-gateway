@@ -310,6 +310,18 @@ function getSourceDisplayName(
 }
 
 
+function getSourceSelectionLabel(source: Source): string {
+  const suffix = source.type === "broadcastify_calls"
+    ? "Calls API / JWT"
+    : source.type === "broadcastify_live_audio"
+      ? "LEGACY Live Audio / website sign-in"
+      : source.type === "direct_audio"
+        ? "Direct HTTP Audio"
+        : source.type;
+  return `${getSourceDisplayName(source)} — ${suffix}`;
+}
+
+
 function getDeviceDisplayName(
   device:
     RFDevice
@@ -2079,7 +2091,7 @@ function RoutesPanel({
               >
                 {sources.map((source) => (
                   <option key={source.id} value={source.id}>
-                    {getSourceDisplayName(source)}
+                    {getSourceSelectionLabel(source)}
                   </option>
                 ))}
               </select>
@@ -2504,7 +2516,7 @@ function RoutesPanel({
                                     onChange={(event) => setEditSourceId(event.target.value)}>
                                     {sources.map((item) => (
                                       <option key={item.id} value={item.id}>
-                                        {getSourceDisplayName(item)}
+                                        {getSourceSelectionLabel(item)}
                                       </option>
                                     ))}
                                   </select>
