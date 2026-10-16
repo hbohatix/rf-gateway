@@ -36,6 +36,12 @@ from app.p25_streaming_session import (
     P25StreamingSession,
 )
 
+from app.direct_audio_client import (
+    DirectAudioStream,
+    direct_audio_client,
+    validate_direct_audio_url,
+)
+
 
 DEFAULT_READ_TIMEOUT_SECONDS = 0.5
 
@@ -113,8 +119,11 @@ class BroadcastifyLiveAudioPipeline:
 
         self.client = (
             client
-            or
-            broadcastify_live_audio_client
+            or (
+                direct_audio_client
+                if source.get("type") == "direct_audio"
+                else broadcastify_live_audio_client
+            )
         )
 
         self.read_timeout_seconds = float(
@@ -140,6 +149,7 @@ class BroadcastifyLiveAudioPipeline:
 
         self._stream: (
             BroadcastifyLiveAudioStream
+            | DirectAudioStream
             | None
         ) = None
 
@@ -270,7 +280,7 @@ class BroadcastifyLiveAudioPipeline:
 
     def _validate_source(
         self,
-    ) -> int:
+    ) -> int | str:
         source_type = (
             str(
                 self.source.get(
@@ -292,6 +302,17 @@ class BroadcastifyLiveAudioPipeline:
             .strip()
             .lower()
         )
+
+        if source_type == "direct_audio":
+            if provider != "direct":
+                raise BroadcastifyLiveAudioPipelineError(
+                    "Direct Audio requires direct provider"
+                )
+            if self.protocol != "p25":
+                raise BroadcastifyLiveAudioPipelineError(
+                    "Direct Audio currently supports P25 only"
+                )
+            return validate_direct_audio_url(str(self.source.get("url") or ""))
 
         if (
             source_type
@@ -647,6 +668,7 @@ class BroadcastifyLiveAudioPipeline:
     ) -> None:
         stream: (
             BroadcastifyLiveAudioStream
+            | DirectAudioStream
             | None
         ) = None
 
