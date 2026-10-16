@@ -10,8 +10,8 @@ type BroadcastifyProbe = {
   provider: string;
   source_type: string;
 
-  playlist_uuid: string;
-  view: string;
+  playlist_uuid?: string;
+  view?: string;
   canonical_url: string;
 
   reachable: boolean;
@@ -43,15 +43,16 @@ type BroadcastifySource = {
   name: string;
 
   type:
-    "broadcastify_calls";
+    | "broadcastify_calls"
+    | "broadcastify_live_audio"
+    | "direct_audio";
 
-  provider:
-    "broadcastify";
+  provider: string;
 
   url: string;
 
-  playlist_uuid: string;
-  view: string;
+  playlist_uuid?: string;
+  view?: string;
 
   created_at: string;
   updated_at: string;
@@ -152,6 +153,10 @@ function SourcesPanel(
       false
     );
 
+
+  const [addType, setAddType] = useState<
+    "broadcastify_calls" | "direct_audio"
+  >("broadcastify_calls");
 
   const [
     addUrl,
@@ -368,7 +373,7 @@ function SourcesPanel(
           !url
         ) {
           throw new Error(
-            "Paste a Broadcastify Calls playlist URL first."
+            "Enter an audio source URL first."
           );
         }
 
@@ -388,7 +393,7 @@ function SourcesPanel(
 
         const response =
           await fetch(
-            `${API_BASE_URL}/api/sources/broadcastify/probe`,
+            `${API_BASE_URL}/api/sources/${addType === "direct_audio" ? "direct-audio" : "broadcastify"}/probe`,
             {
               method:
                 "POST",
@@ -449,7 +454,7 @@ function SourcesPanel(
           setAddError(
             probe.error
             ??
-            "Broadcastify playlist is not reachable."
+            "Audio source is not reachable."
           );
         }
 
@@ -465,7 +470,7 @@ function SourcesPanel(
 
         } else {
           setAddError(
-            "Unable to probe Broadcastify source."
+            "Unable to probe audio source."
           );
         }
 
@@ -495,7 +500,7 @@ function SourcesPanel(
           ||
           addProbe.page_name
           ||
-          "Broadcastify Calls";
+          (addType === "direct_audio" ? "Direct Audio" : "Broadcastify Calls");
 
 
         setSavingNew(
@@ -523,8 +528,7 @@ function SourcesPanel(
                 JSON.stringify({
                   name,
 
-                  type:
-                    "broadcastify_calls",
+                  type: addType,
 
                   url:
                     addProbe.canonical_url,
@@ -863,7 +867,11 @@ function SourcesPanel(
                           </h3>
 
                           <div className="source-provider">
-                            BROADCASTIFY CALLS
+                            {source.type === "direct_audio"
+                              ? "DIRECT AUDIO"
+                              : source.type === "broadcastify_live_audio"
+                                ? "BROADCASTIFY LIVE AUDIO"
+                                : "BROADCASTIFY CALLS"}
                           </div>
                         </div>
 
@@ -889,11 +897,13 @@ function SourcesPanel(
 
                         <div className="source-detail-wide">
                           <span>
-                            PLAYLIST UUID
+                            {source.type === "direct_audio" ? "INPUT" : "PLAYLIST UUID"}
                           </span>
 
                           <strong>
-                            {source.playlist_uuid}
+                            {source.type === "direct_audio"
+                              ? "Direct HTTP audio"
+                              : (source.playlist_uuid ?? source.url)}
                           </strong>
                         </div>
 
@@ -1001,7 +1011,7 @@ function SourcesPanel(
           className="source-modal-overlay"
           role="dialog"
           aria-modal="true"
-          aria-label="Add Broadcastify source"
+          aria-label="Add audio source"
         >
 
           <div className="source-modal">
@@ -1014,7 +1024,7 @@ function SourcesPanel(
                 </h2>
 
                 <p>
-                  Broadcastify Calls playlist
+                  Select a supported source type
                 </p>
               </div>
 
@@ -1042,22 +1052,32 @@ function SourcesPanel(
                   Type
                 </span>
 
-                <input
-                  type="text"
-                  value="Broadcastify Calls"
-                  disabled
-                />
+                <select
+                  value={addType}
+                  disabled={probingNew || savingNew}
+                  onChange={(event) => {
+                    setAddType(event.target.value as "broadcastify_calls" | "direct_audio");
+                    setAddUrl("");
+                    setAddProbe(null);
+                    setAddError(null);
+                  }}
+                >
+                  <option value="broadcastify_calls">Broadcastify Calls</option>
+                  <option value="direct_audio">Direct HTTP Audio (authorized)</option>
+                </select>
               </label>
 
 
               <label className="source-field">
                 <span>
-                  Playlist URL
+                  {addType === "direct_audio" ? "Direct media URL" : "Playlist URL"}
                 </span>
 
                 <input
                   type="url"
-                  placeholder="https://www.broadcastify.com/calls/playlists/?uuid=..."
+                  placeholder={addType === "direct_audio"
+                    ? "http://192.168.1.50:8000/live.mp3"
+                    : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
                   value={
                     addUrl
                   }
@@ -1151,7 +1171,7 @@ function SourcesPanel(
                       </span>
 
                       <strong>
-                        {addProbe.playlist_uuid}
+                        {addProbe.playlist_uuid ?? (addType === "direct_audio" ? "Direct media" : "--")}
                       </strong>
                     </div>
 
