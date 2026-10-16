@@ -82,7 +82,7 @@ class DirectAudioStream:
             command = [
                 self.ffmpeg_path, "-nostdin", "-hide_banner",
                 "-loglevel", "error", "-rw_timeout", "10000000",
-                "-i", self.url, "-vn", "-ac", "1", "-ar", "8000",
+                "-re", "-i", self.url, "-vn", "-ac", "1", "-ar", "8000",
                 "-f", "s16le", "-acodec", "pcm_s16le", "pipe:1",
             ]
             try:
