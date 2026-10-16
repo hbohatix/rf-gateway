@@ -221,6 +221,7 @@ type RoutesPanelProps = {
   onRoutesChanged?: (
     count: number
   ) => void;
+  onSourceCreated?: () => void;
 };
 
 
@@ -713,6 +714,7 @@ function getApiError(
 function RoutesPanel({
   apiBaseUrl,
   onRoutesChanged,
+  onSourceCreated,
 }: RoutesPanelProps) {
   const [
     routes,
@@ -1365,6 +1367,7 @@ function RoutesPanel({
       setRouteName("");
       setStartNow(false);
       await refreshAll();
+      if (data?.source_created) onSourceCreated?.();
 
       if (startNow && data?.start) {
         const startStatus = data.start as {
