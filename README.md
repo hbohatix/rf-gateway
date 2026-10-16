@@ -802,6 +802,23 @@ curl -s -X POST \
 
 Live Audio transport currently uses the stream model used by the normal web player and decodes HLS media to local PCM with `curl` and FFmpeg.
 
+### Broadcastify sign-in / missing `hlsUrl`
+
+Since October 2026, Broadcastify requires sign-in to listen to web feeds. A feed's public HTML may still be reachable, while its HLS session values are absent. An installed `curl` / FFmpeg pair is **not** proof that listening access is available.
+
+For a `broadcastify_live_audio` route, `POST /api/routes/{route_id}/preflight` now tries to resolve the listening session. If no HLS session can be resolved, it reports `state: blocked`, `source_ready: false`, `blocked_reason: source_stream_unavailable`, and an explanatory `error` instead of indicating `SOURCE READY`. This validates session metadata, not continuous audio delivery.
+
+A free Broadcastify login is not automatically an approved programmatic audio API. If direct integration is needed, use an access method explicitly provided/approved by Broadcastify; their static audio URL requires Premium, and the audio feed catalog API requires a license. Listening access alone does not authorize retransmitting a feed over RF. The current RF Gateway HLS client does not implement an authenticated Broadcastify login or the Premium static audio transport.
+
+Run the no-network regression tests:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m unittest discover -s tests -p 'test_*.py'
+```
+
+
 ### `POST /api/sources/broadcastify/probe`
 
 Probe a Broadcastify source URL.
