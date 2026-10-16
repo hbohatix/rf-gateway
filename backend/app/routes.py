@@ -55,6 +55,7 @@ from app.route_runtime import (
 
 from app.sources import (
     get_source_or_404,
+    probe_direct_audio,
 )
 
 
@@ -440,6 +441,13 @@ def run_preflight(
         )
     )
 
+    if (
+        route.get("enabled", False)
+        and source.get("type") == "direct_audio"
+    ):
+        # Reprobe only on explicit route checks, not periodic UI polling.
+        source["probe"] = probe_direct_audio(source["url"])
+
     # A reachable Broadcastify page and an installed decoder do
     # not guarantee that an HLS listening session is available.
     # Check only when a live-audio route is explicitly preflighted.
@@ -622,16 +630,12 @@ def start_source_pipeline(
         }
 
 
-    if (
-        source_type
-        ==
-        "broadcastify_live_audio"
-    ):
+    if source_type in ("broadcastify_live_audio", "direct_audio"):
         if protocol != "p25":
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Broadcastify Live Audio "
+                    "Continuous Live Audio "
                     "currently supports "
                     "P25 routes only"
                 ),
@@ -656,7 +660,7 @@ def start_source_pipeline(
                 status_code=500,
                 detail=(
                     "Unable to start "
-                    "Broadcastify Live Audio "
+                    "Live Audio "
                     f"pipeline: {error}"
                 ),
             ) from error
@@ -787,11 +791,7 @@ def source_pipeline_running(
         )
 
 
-    if (
-        source_type
-        ==
-        "broadcastify_live_audio"
-    ):
+    if source_type in ("broadcastify_live_audio", "direct_audio"):
         live_audio = (
             result.get(
                 "live_audio"
