@@ -170,6 +170,12 @@ type LiveAudioStatus = {
   p25?:
     LiveAudioP25Status
     | null;
+
+  stream?: {
+    error?: string | null;
+    attempts?: number;
+    transport?: string;
+  } | null;
 };
 
 
@@ -2351,7 +2357,7 @@ function RoutesPanel({
                               <div className="route-worker__stats">
                                 <div>
                                   <span>
-                                    Feed ID
+                                    {source?.type === "direct_audio" ? "INPUT" : "Feed ID"}
                                   </span>
 
                                   <strong>
@@ -2421,6 +2427,12 @@ function RoutesPanel({
                               {liveAudio?.error && (
                                 <div className="route-worker__error">
                                   {liveAudio.error}
+                                </div>
+                              )}
+
+                              {liveAudio?.stream?.error && (
+                                <div className="route-worker__error">
+                                  {liveAudio.stream.error} (reconnecting)
                                 </div>
                               )}
                             </div>
