@@ -1633,6 +1633,14 @@ def probe_broadcastify_endpoint(
         ) from error
 
 
+@router.post("/direct-audio/probe")
+def probe_direct_audio_endpoint(request: BroadcastifyProbeRequest):
+    try:
+        return probe_direct_audio(request.url)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @router.post("")
 def create_source(
     request:
