@@ -930,6 +930,37 @@ Delete a source.
 
 ---
 
+## Unified Route Setup (recommended)
+
+The **Routes** panel is now the primary workflow. In one form, paste a Broadcastify Calls playlist or Live Audio feed URL (or choose an existing source), select the RF device and protocol, then choose **Create Route** or explicitly opt into **Create & Start**. The **Sources** panel remains accessible as an advanced section for manual probing/deletion.
+
+The backend preserves existing `sources.json`, `routes.yaml`, and old API endpoints; **no migration or duplicate manual activation** is necessary. An existing source with the same normalized URL is reused.
+
+```bash
+# Create/configure a Calls route in one request, without starting RF:
+curl -sS -X POST http://127.0.0.1:8000/api/routes/setup \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "source_url":"https://www.broadcastify.com/calls/playlists/?uuid=YOUR_UUID",
+    "device_id":"YOUR_RF_DEVICE_ID",
+    "protocol":"p25",
+    "start_now":false
+  }' | jq
+```
+
+You can instead send `"source_id": "EXISTING_SOURCE_ID"` (not both) and an optional `name`. Source kind is detected from the URL. Setting `start_now: true` **may initiate a real RF transmission** and should only be used intentionally when the operator is authorized to transmit. If preflight fails, the route remains saved and the response includes `start.started: false` and the detailed runtime error.
+
+Pressing **Start** on an existing disabled route now enables and starts it in the same operation. Broadcastify Live Audio sources that require browser sign-in remain blocked; use appropriately licensed Calls API access where applicable.
+
+### Edit or delete from Routes
+
+Expand a route and choose **Edit** to change its name, RF device, protocol and source (reuse an existing source or paste a new Broadcastify URL). The backend uses `PUT /api/routes/{route_id}/setup` and preserves the route ID. Edits require the route to be stopped; **Save Changes does not start RF**. Editing a route does not modify the source of any other route.
+
+Deleting a route from the UI asks for confirmation and calls `DELETE /api/routes/{route_id}?cleanup_source=true`. If the source is still used by other routes it is preserved; otherwise the now-unused source is deleted. The old DELETE endpoint without the optional flag still removes only the route. Advanced Sources now refuses to delete a source referenced by a route (HTTP 409), preventing broken configurations.
+
+**Data safety:** sources and routes are still stored in separate files. The server performs best-effort cleanup after partial failures; this is not a cross-file database transaction. Back up `backend/data/sources.json` and `backend/data/routes.yaml` before testing changes.
+
+
 # Route API
 
 Base path:

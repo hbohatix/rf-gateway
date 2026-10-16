@@ -55,6 +55,11 @@ from app.route_runtime import (
 
 from app.sources import (
     get_source_or_404,
+    create_source,
+    delete_source,
+    load_store as load_sources_store,
+    parse_broadcastify_source_url,
+    SourceCreateRequest,
 )
 
 
@@ -122,6 +127,20 @@ class RouteCreateRequest(
     protocol: Protocol
 
     enabled: bool = True
+
+
+class RouteSetupRequest(BaseModel):
+    """Create a route, optionally registering its source in the same request."""
+
+    device_id: str = Field(min_length=1, max_length=256)
+    protocol: Protocol
+    name: str | None = Field(default=None, max_length=120)
+    source_id: str | None = None
+    source_url: str | None = Field(default=None, max_length=2048)
+    source_type: Literal[
+        "auto", "broadcastify_calls", "broadcastify_live_audio"
+    ] = "auto"
+    start_now: bool = False
 
 
 class RouteUpdateRequest(
@@ -1079,6 +1098,148 @@ def create_route(
     return route
 
 
+def resolve_setup_source(request: RouteSetupRequest) -> tuple[dict, bool]:
+    """Reuse an existing source or register exactly one new source."""
+    existing_id = (request.source_id or "").strip()
+    source_url = (request.source_url or "").strip()
+    if bool(existing_id) == bool(source_url):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either source_id or source_url, not both",
+        )
+
+    if existing_id:
+        return get_source_or_404(existing_id), False
+
+    try:
+        parsed = parse_broadcastify_source_url(source_url)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    parsed_type = parsed["source_type"]
+    if request.source_type not in ("auto", parsed_type):
+        raise HTTPException(
+            status_code=400,
+            detail="Source URL does not match requested source type",
+        )
+
+    canonical = parsed["canonical_url"]
+    source = next(
+        (
+            item for item in load_sources_store().get("sources", [])
+            if item.get("type") == parsed_type
+            and item.get("url") == canonical
+        ),
+        None,
+    )
+    if source is not None:
+        return source, False
+
+    source = create_source(
+        SourceCreateRequest(
+            name=request.name or parsed_type.replace("_", " ").title(),
+            type=parsed_type,
+            url=canonical,
+        )
+    )
+    return source, True
+
+
+@router.post("/setup")
+def setup_route(request: RouteSetupRequest):
+    """Single-request create/reuse source + route, with optional explicit start.
+
+    Existing /api/sources and /api/routes calls remain compatible. The
+    source is only removed on a route creation failure if we created it here.
+    A start failure does not erase the saved route configuration.
+    """
+    source, created_source = resolve_setup_source(request)
+
+    route_name = (request.name or "").strip() or (
+        (source.get("probe") or {}).get("page_name") or source.get("name") or "RF Route"
+    )
+    try:
+        route = create_route(
+            RouteCreateRequest(
+                name=route_name,
+                source_id=source["id"],
+                device_id=request.device_id,
+                protocol=request.protocol,
+                enabled=True,
+            )
+        )
+    except Exception:
+        if created_source:
+            delete_source(source["id"])
+        raise
+
+    start_result = None
+    if request.start_now:
+        try:
+            start_result = start_route(route["id"])
+        except HTTPException as error:
+            start_result = {
+                "started": False,
+                "message": str(error.detail),
+            }
+
+    return {
+        "route": route,
+        "source": source,
+        "source_created": created_source,
+        "start_requested": request.start_now,
+        "start": start_result,
+    }
+
+
+@router.put("/{route_id}/setup")
+def edit_route_setup(route_id: str, request: RouteSetupRequest):
+    """Update a saved route and its source selection, never auto-start RF."""
+    current = get_route_or_404(route_id)
+    if request.start_now:
+        raise HTTPException(
+            status_code=400,
+            detail="Save changes first; starting RF is a separate action",
+        )
+
+    runtime = route_runtime_manager.get(route_id)
+    worker = get_worker_status(route_id) or {}
+    live_audio = get_live_audio_status(route_id) or {}
+    if (
+        runtime.get("active", False)
+        or worker.get("running", False)
+        or live_audio.get("running", False)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the route before editing its configuration",
+        )
+
+    source, created_source = resolve_setup_source(request)
+    route_name = (request.name or "").strip() or current["name"]
+    try:
+        updated = update_route(
+            route_id,
+            RouteUpdateRequest(
+                name=route_name,
+                source_id=source["id"],
+                device_id=request.device_id,
+                protocol=request.protocol,
+            ),
+        )
+    except Exception:
+        if created_source:
+            delete_source(source["id"])
+        raise
+
+    return {
+        "route": updated,
+        "source": source,
+        "source_created": created_source,
+        "start_requested": False,
+    }
+
+
 @router.get(
     "/{route_id}"
 )
@@ -1486,6 +1647,12 @@ def start_route(
     route = get_route_or_404(
         route_id
     )
+
+    # START is an explicit user action; it enables a disabled route in
+    # the same operation, so a separate ENABLE click is not required.
+    if not route.get("enabled", False):
+        update_route(route_id, RouteUpdateRequest(enabled=True))
+        route = get_route_or_404(route_id)
 
     runtime = run_preflight(
         route
@@ -2081,6 +2248,7 @@ def update_route(
 )
 def delete_route(
     route_id: str,
+    cleanup_source: bool = False,
 ):
     store = load_store()
 
@@ -2114,13 +2282,16 @@ def delete_route(
             detail="Route not found",
         )
 
-    store[
-        "routes"
-    ] = remaining
-
-    save_store(
-        store
+    deleted = next(
+        (route for route in routes if route.get("id") == route_id), {}
     )
+    source_id = deleted.get("source_id")
+    source_shared = any(
+        item.get("source_id") == source_id for item in remaining
+    ) if source_id else False
+
+    store["routes"] = remaining
+    save_store(store)
 
 
     broadcastify_live_audio_pipeline_manager.remove(
@@ -2144,10 +2315,20 @@ def delete_route(
     )
 
 
-    return {
-        "deleted":
-            True,
+    source_deleted = False
+    source_cleanup_error = None
+    if cleanup_source and source_id and not source_shared:
+        try:
+            delete_source(source_id)
+            source_deleted = True
+        except HTTPException as error:
+            # The route was already deleted; do not misreport a failed delete.
+            source_cleanup_error = str(error.detail)
 
-        "id":
-            route_id,
+    return {
+        "deleted": True,
+        "id": route_id,
+        "source_deleted": source_deleted,
+        "source_shared": source_shared,
+        "source_cleanup_error": source_cleanup_error,
     }

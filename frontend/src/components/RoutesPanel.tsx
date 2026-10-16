@@ -221,6 +221,7 @@ type RoutesPanelProps = {
   onRoutesChanged?: (
     count: number
   ) => void;
+  onSourcesChanged?: () => void;
 };
 
 
@@ -713,6 +714,7 @@ function getApiError(
 function RoutesPanel({
   apiBaseUrl,
   onRoutesChanged,
+  onSourcesChanged,
 }: RoutesPanelProps) {
   const [
     routes,
@@ -809,6 +811,19 @@ function RoutesPanel({
     useState(
       false
     );
+
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [editSourceMode, setEditSourceMode] = useState<"saved" | "url">("saved");
+  const [editSourceId, setEditSourceId] = useState("");
+  const [editSourceUrl, setEditSourceUrl] = useState("");
+  const [editRouteName, setEditRouteName] = useState("");
+  const [editDeviceId, setEditDeviceId] = useState("");
+  const [editProtocol, setEditProtocol] = useState<Protocol>("p25");
+
+  const [sourceMode, setSourceMode] = useState<"url" | "saved">("url");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [routeName, setRouteName] = useState("");
+  const [startNow, setStartNow] = useState(false);
 
   const [
     selectedSourceId,
@@ -1316,139 +1331,74 @@ function RoutesPanel({
   );
 
 
-  const handleCreateRoute =
-    async () => {
-      if (
-        !selectedSourceId
-      ) {
-        setError(
-          "Select a source"
-        );
+  const handleCreateRoute = async () => {
+    if (sourceMode === "url" && !sourceUrl.trim()) {
+      setError("Enter a Broadcastify Calls playlist or Live Audio feed URL");
+      return;
+    }
+    if (sourceMode === "saved" && !selectedSourceId) {
+      setError("Select an existing source");
+      return;
+    }
+    if (!selectedDeviceId) {
+      setError("Select an RF device");
+      return;
+    }
 
-        return;
-      }
-
-      if (
-        !selectedDeviceId
-      ) {
-        setError(
-          "Select an RF device"
-        );
-
-        return;
-      }
-
-      const source =
-        sources.find(
-          (
-            item
-          ) =>
-            item.id
-            ===
-            selectedSourceId
-        );
-
-      if (
-        !source
-      ) {
-        setError(
-          "Selected source was not found"
-        );
-
-        return;
-      }
-
-      setCreateBusy(
-        true
+    setCreateBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/routes/setup`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: routeName.trim() || null,
+            source_id: sourceMode === "saved" ? selectedSourceId : null,
+            source_url: sourceMode === "url" ? sourceUrl.trim() : null,
+            device_id: selectedDeviceId,
+            protocol: selectedProtocol,
+            start_now: startNow,
+          }),
+        }
       );
+      const data = await readApiObject(response);
+      if (!response.ok) {
+        throw new Error(
+          getApiError(data, `Create route HTTP ${response.status}`)
+        );
+      }
 
-      setError(
-        null
-      );
+      setCreateOpen(false);
+      setSourceUrl("");
+      setRouteName("");
+      setStartNow(false);
+      await refreshAll();
+      if (data?.source_created) onSourcesChanged?.();
 
-      try {
-        const response =
-          await fetch(
-            `${apiBaseUrl}/api/routes`,
-            {
-              method:
-                "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body:
-                JSON.stringify({
-                  name:
-                    getSourceDisplayName(
-                      source
-                    ),
-
-                  source_id:
-                    selectedSourceId,
-
-                  device_id:
-                    selectedDeviceId,
-
-                  protocol:
-                    selectedProtocol,
-
-                  enabled:
-                    true,
-                }),
-            }
-          );
-
-        if (
-          !response.ok
-        ) {
-          const data =
-            await readApiObject(
-              response
-            );
-
-          throw new Error(
-            getApiError(
-              data,
-              (
-                `Create route HTTP ` +
-                `${response.status}`
-              )
-            )
+      if (startNow && data?.start) {
+        const startStatus = data.start as {
+          started?: boolean;
+          message?: string;
+          runtime?: RouteRuntimeStatus;
+        };
+        if (startStatus.started === false) {
+          setError(
+            "Route saved, but not started: " +
+            (startStatus.runtime?.error ||
+              startStatus.runtime?.blocked_reason ||
+              startStatus.message ||
+              "preflight failed")
           );
         }
-
-        setCreateOpen(
-          false
-        );
-
-        await refreshAll();
-
-      } catch (
-        caught
-      ) {
-        if (
-          caught instanceof
-          Error
-        ) {
-          setError(
-            caught.message
-          );
-
-        } else {
-          setError(
-            "Unable to create route"
-          );
-        }
-
-      } finally {
-        setCreateBusy(
-          false
-        );
       }
-    };
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create route");
+    } finally {
+      setCreateBusy(false);
+    }
+  };
 
 
   const handleToggleEnabled =
@@ -1528,10 +1478,74 @@ function RoutesPanel({
     };
 
 
+  const openRouteEditor = (route: Route) => {
+    setEditingRouteId(route.id);
+    setEditRouteName(route.name);
+    setEditSourceMode("saved");
+    setEditSourceId(route.source_id);
+    setEditSourceUrl("");
+    setEditDeviceId(route.device_id);
+    setEditProtocol(route.protocol);
+    setExpandedRoutes((current) => ({ ...current, [route.id]: true }));
+    setError(null);
+  };
+
+  const saveEditedRoute = async (route: Route) => {
+    if (!editRouteName.trim() || !editDeviceId) {
+      setError("Enter a route name and RF device");
+      return;
+    }
+    if (editSourceMode === "saved" ? !editSourceId : !editSourceUrl.trim()) {
+      setError("Select a source or provide its URL");
+      return;
+    }
+
+    setActionRouteId(route.id);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/routes/${route.id}/setup`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: editRouteName.trim(),
+            source_id: editSourceMode === "saved" ? editSourceId : null,
+            source_url: editSourceMode === "url" ? editSourceUrl.trim() : null,
+            device_id: editDeviceId,
+            protocol: editProtocol,
+            start_now: false,
+          }),
+        }
+      );
+      const data = await readApiObject(response);
+      if (!response.ok) {
+        throw new Error(
+          getApiError(data, `Unable to save route: HTTP ${response.status}`)
+        );
+      }
+
+      setEditingRouteId(null);
+      await refreshAll();
+      if (data?.source_created) onSourcesChanged?.();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save route");
+    } finally {
+      setActionRouteId(null);
+    }
+  };
+
+
   const handleDelete =
     async (
       route: Route
     ) => {
+      if (!window.confirm(
+        `Delete "${route.name}"? Its source will also be deleted if no other route uses it.`
+      )) {
+        return;
+      }
+
       setActionRouteId(
         route.id
       );
@@ -1545,7 +1559,7 @@ function RoutesPanel({
           await fetch(
             (
               `${apiBaseUrl}` +
-              `/api/routes/${route.id}`
+              `/api/routes/${route.id}?cleanup_source=true`
             ),
             {
               method:
@@ -1563,6 +1577,15 @@ function RoutesPanel({
             )
           );
         }
+
+        const deleted = await readApiObject(response);
+        if (deleted?.source_deleted) onSourcesChanged?.();
+        if (deleted?.source_cleanup_error) {
+          setError(
+            `Route deleted; source cleanup failed: ${deleted.source_cleanup_error}`
+          );
+        }
+        if (editingRouteId === route.id) setEditingRouteId(null);
 
         setStatuses(
           (
@@ -1663,18 +1686,12 @@ function RoutesPanel({
           );
         }
 
-        if (
-          data
-          &&
-          data.started
-          ===
-          false
-        ) {
+        if (data && data.started === false) {
+          const runtime = data.runtime as RouteRuntimeStatus | undefined;
           throw new Error(
-            getApiError(
-              data,
-              "Route did not start"
-            )
+            runtime?.error ||
+            runtime?.blocked_reason ||
+            getApiError(data, "Route did not start")
           );
         }
 
@@ -1802,7 +1819,7 @@ function RoutesPanel({
           </h2>
 
           <p>
-            Internet sources routed to RF devices
+            Configure source, RF device and protocol in one place
           </p>
         </div>
 
@@ -1831,152 +1848,103 @@ function RoutesPanel({
       {createOpen && (
         <div className="route-create">
           <label>
-            <span>
-              Source
-            </span>
-
+            <span>Source</span>
             <select
-              value={
-                selectedSourceId
-              }
-              onChange={
-                (
-                  event
-                ) =>
-                  setSelectedSourceId(
-                    event.target.value
-                  )
-              }
+              value={sourceMode}
+              onChange={(event) => setSourceMode(event.target.value as "url" | "saved")}
             >
-              {sources.map(
-                (
-                  source
-                ) => (
-                  <option
-                    key={
-                      source.id
-                    }
-                    value={
-                      source.id
-                    }
-                  >
-                    {
-                      getSourceDisplayName(
-                        source
-                      )
-                    }
-                  </option>
-                )
-              )}
+              <option value="url">Add from URL (one step)</option>
+              <option value="saved">Use saved source</option>
             </select>
           </label>
 
+          {sourceMode === "url" ? (
+            <label className="route-create__wide">
+              <span>Broadcastify source URL</span>
+              <input
+                type="url"
+                value={sourceUrl}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder="https://www.broadcastify.com/calls/playlists/?uuid=..."
+              />
+              <small>Calls playlist or Live Audio feed. Existing sources are reused automatically.</small>
+            </label>
+          ) : (
+            <label className="route-create__wide">
+              <span>Saved source</span>
+              <select
+                value={selectedSourceId}
+                onChange={(event) => setSelectedSourceId(event.target.value)}
+              >
+                {sources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {getSourceDisplayName(source)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label>
-            <span>
-              RF Device
-            </span>
-
-            <select
-              value={
-                selectedDeviceId
-              }
-              onChange={
-                (
-                  event
-                ) =>
-                  setSelectedDeviceId(
-                    event.target.value
-                  )
-              }
-            >
-              {devices.map(
-                (
-                  device
-                ) => (
-                  <option
-                    key={
-                      device.id
-                    }
-                    value={
-                      device.id
-                    }
-                  >
-                    {
-                      getDeviceDisplayName(
-                        device
-                      )
-                    }
-                    {" · "}
-                    {device.id}
-                  </option>
-                )
-              )}
-            </select>
+            <span>Route name (optional)</span>
+            <input
+              type="text"
+              maxLength={120}
+              value={routeName}
+              onChange={(event) => setRouteName(event.target.value)}
+              placeholder="Auto from source"
+            />
           </label>
-
 
           <label>
-            <span>
-              Protocol
-            </span>
-
+            <span>RF Device</span>
             <select
-              value={
-                selectedProtocol
-              }
-              onChange={
-                (
-                  event
-                ) =>
-                  setSelectedProtocol(
-                    event.target.value as Protocol
-                  )
-              }
+              value={selectedDeviceId}
+              onChange={(event) => setSelectedDeviceId(event.target.value)}
             >
-              {PROTOCOLS.map(
-                (
-                  protocol
-                ) => (
-                  <option
-                    key={
-                      protocol
-                    }
-                    value={
-                      protocol
-                    }
-                  >
-                    {
-                      protocol
-                        .toUpperCase()
-                    }
-                  </option>
-                )
-              )}
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {getDeviceDisplayName(device)} · {device.id}
+                </option>
+              ))}
             </select>
           </label>
 
+          <label>
+            <span>Protocol</span>
+            <select
+              value={selectedProtocol}
+              onChange={(event) => setSelectedProtocol(event.target.value as Protocol)}
+            >
+              {PROTOCOLS.map((protocol) => (
+                <option key={protocol} value={protocol}>
+                  {protocol.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="route-create__start">
+            <input
+              type="checkbox"
+              checked={startNow}
+              onChange={(event) => setStartNow(event.target.checked)}
+            />
+            <span>Start immediately (may transmit RF if audio is available)</span>
+          </label>
 
           <div className="route-create__actions">
             <button
               type="button"
               className="route-create__submit"
               disabled={
-                createBusy
-                ||
-                !selectedSourceId
-                ||
-                !selectedDeviceId
+                createBusy ||
+                !selectedDeviceId ||
+                (sourceMode === "url" ? !sourceUrl.trim() : !selectedSourceId)
               }
-              onClick={
-                () => {
-                  void handleCreateRoute();
-                }
-              }
+              onClick={() => { void handleCreateRoute(); }}
             >
-              {createBusy
-                ? "CREATING..."
-                : "CREATE ROUTE"}
+              {createBusy ? "SAVING..." : startNow ? "CREATE & START" : "CREATE ROUTE"}
             </button>
           </div>
         </div>
@@ -2240,6 +2208,112 @@ function RoutesPanel({
 
                     {expanded && (
                       <>
+                        {editingRouteId === route.id && (
+                          <div className="route-edit">
+                            <div className="route-edit__heading">
+                              <strong>Edit route</strong>
+                              <span>Save does not start RF. Stop the route before editing.</span>
+                            </div>
+                            <div className="route-edit__grid">
+                              <label>
+                                <span>Name</span>
+                                <input
+                                  type="text"
+                                  maxLength={120}
+                                  value={editRouteName}
+                                  onChange={(event) => setEditRouteName(event.target.value)}
+                                />
+                              </label>
+                              <label>
+                                <span>Source selection</span>
+                                <select
+                                  value={editSourceMode}
+                                  onChange={(event) => setEditSourceMode(
+                                    event.target.value as "saved" | "url"
+                                  )}
+                                >
+                                  <option value="saved">Saved source</option>
+                                  <option value="url">New source URL</option>
+                                </select>
+                              </label>
+                              {editSourceMode === "saved" ? (
+                                <label className="route-edit__wide">
+                                  <span>Source</span>
+                                  <select
+                                    value={editSourceId}
+                                    onChange={(event) => setEditSourceId(event.target.value)}
+                                  >
+                                    {sources.map((item) => (
+                                      <option key={item.id} value={item.id}>
+                                        {getSourceDisplayName(item)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : (
+                                <label className="route-edit__wide">
+                                  <span>Broadcastify playlist or feed URL</span>
+                                  <input
+                                    type="url"
+                                    value={editSourceUrl}
+                                    placeholder="https://www.broadcastify.com/calls/playlists/?uuid=..."
+                                    onChange={(event) => setEditSourceUrl(event.target.value)}
+                                  />
+                                  <small>Shared sources are reused. Other routes are not modified.</small>
+                                </label>
+                              )}
+                              <label>
+                                <span>RF Device</span>
+                                <select
+                                  value={editDeviceId}
+                                  onChange={(event) => setEditDeviceId(event.target.value)}
+                                >
+                                  {!devices.some((item) => item.id === editDeviceId) && (
+                                    <option value={editDeviceId}>
+                                      {editDeviceId} (not currently available)
+                                    </option>
+                                  )}
+                                  {devices.map((item) => (
+                                    <option key={item.id} value={item.id}>
+                                      {getDeviceDisplayName(item)} · {item.id}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>Protocol</span>
+                                <select
+                                  value={editProtocol}
+                                  onChange={(event) => setEditProtocol(
+                                    event.target.value as Protocol
+                                  )}
+                                >
+                                  {PROTOCOLS.map((item) => (
+                                    <option key={item} value={item}>
+                                      {item.toUpperCase()}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <div className="route-edit__actions">
+                              <button
+                                type="button"
+                                disabled={busy || running}
+                                onClick={() => { void saveEditedRoute(route); }}
+                              >
+                                {busy ? "SAVING..." : "SAVE CHANGES"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setEditingRouteId(null)}
+                              >
+                                CANCEL
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         <div
                           style={{
                             display:
@@ -2659,8 +2733,6 @@ function RoutesPanel({
                               className="route-card__worker-start"
                               disabled={
                                 busy
-                                ||
-                                !route.enabled
                               }
                               onClick={
                                 () => {
@@ -2708,6 +2780,17 @@ function RoutesPanel({
                             {route.enabled
                               ? "DISABLE"
                               : "ENABLE"}
+                          </button>
+
+
+                          <button
+                            type="button"
+                            disabled={busy || running}
+                            onClick={() => editingRouteId === route.id
+                              ? setEditingRouteId(null)
+                              : openRouteEditor(route)}
+                          >
+                            {editingRouteId === route.id ? "CANCEL EDIT" : "EDIT"}
                           </button>
 
 
@@ -2769,8 +2852,6 @@ function RoutesPanel({
                           className="route-card__worker-start"
                           disabled={
                             busy
-                            ||
-                            !route.enabled
                           }
                           onClick={
                             () => {
