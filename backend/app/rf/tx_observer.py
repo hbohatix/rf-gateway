@@ -85,6 +85,12 @@ def capture_tx_result(start: dict[str, Any], frequency_hz: int | None = None) ->
         line[:220] for line in host.splitlines()
         if re.search(r"\b(?:error|failed|lost|NAK)\b", line, re.IGNORECASE)
     ][-5:]
+    if frequency_hz is None:
+        raw_frequency = runtime.get("channel_frequency_hz")
+        try:
+            frequency_hz = int(raw_frequency) if raw_frequency else None
+        except (TypeError, ValueError):
+            frequency_hz = None
     independent = _latest_sensor_evidence(
         float(start["started_at_unix"]), frequency_hz
     )
