@@ -1150,7 +1150,7 @@ def setup_route(request: RouteSetupRequest):
             created_source = True
 
     route_name = (request.name or "").strip() or (
-        source.get("probe", {}).get("page_name") or source.get("name") or "RF Route"
+        (source.get("probe") or {}).get("page_name") or source.get("name") or "RF Route"
     )
     try:
         route = create_route(
