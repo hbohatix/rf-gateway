@@ -106,7 +106,22 @@ function RFDeviceCard({
         <div className="rf-device-detail">
           <span>Hardware</span>
           <strong>
-            {capabilities.hardware ?? "—"}
+            {
+              capabilities.hardware ??
+              capabilities.profile ??
+              "—"
+            }
+          </strong>
+        </div>
+
+        <div className="rf-device-detail">
+          <span>Connection</span>
+          <strong>
+            {
+              capabilities.uart_port ??
+              capabilities.connection ??
+              "—"
+            }
           </strong>
         </div>
 

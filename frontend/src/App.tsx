@@ -786,6 +786,8 @@ function App() {
     );
 
 
+  const [sourceRefreshKey, setSourceRefreshKey] = useState(0);
+
   const [
     routeCount,
     setRouteCount,
@@ -2383,29 +2385,26 @@ function App() {
         </section>
 
 
-        <SourcesPanel
-          onCountChange={
-            setSourceCount
-          }
-        />
-
-
-        <div
-          style={{
-            gridColumn:
-              "1 / -1",
-          }}
-        >
+        <div style={{ gridColumn: "1 / -1" }}>
           <RoutesPanel
-            apiBaseUrl={
-              API_BASE_URL
-            }
-
-            onRoutesChanged={
-              setRouteCount
-            }
+            apiBaseUrl={API_BASE_URL}
+            onRoutesChanged={setRouteCount}
+            onSourcesChanged={() => setSourceRefreshKey((value) => value + 1)}
           />
         </div>
+
+        <details style={{ gridColumn: "1 / -1" }}>
+          <summary style={{
+            cursor: "pointer",
+            color: "#94a3b8",
+            padding: "12px 16px",
+            fontSize: "12px",
+            fontWeight: 600,
+          }}>
+            Advanced: Manage and probe saved sources
+          </summary>
+          <SourcesPanel onCountChange={setSourceCount} refreshKey={sourceRefreshKey} />
+        </details>
 
 
         <section className="rf-panel">

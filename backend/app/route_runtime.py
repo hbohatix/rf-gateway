@@ -9,6 +9,10 @@ from app.audio_bridge import (
     get_audio_bridge_capability,
 )
 
+from app.rf import (
+    validate_device_frequency,
+)
+
 
 ACTIVE_STATES = {
     "starting",
@@ -292,11 +296,19 @@ class RouteRuntimeManager:
                 "state"
             ] = "blocked"
 
-            state[
-                "blocked_reason"
-            ] = (
-                "source_audio_not_configured"
+            playback_error = source_probe.get(
+                "playback_error"
             )
+
+            if playback_error:
+                state["blocked_reason"] = (
+                    "source_stream_unavailable"
+                )
+                state["error"] = str(playback_error)
+            else:
+                state["blocked_reason"] = (
+                    "source_audio_not_configured"
+                )
 
             return self._set_state(
                 route_id,
@@ -402,6 +414,40 @@ class RouteRuntimeManager:
                 "blocked_reason"
             ] = (
                 "protocol_config_missing"
+            )
+
+            return self._set_state(
+                route_id,
+                state,
+            )
+
+
+        try:
+            validate_device_frequency(
+                device,
+                int(
+                    mode_config.get(
+                        "frequency_hz",
+                        0,
+                    )
+                ),
+            )
+
+        except ValueError as error:
+            state[
+                "state"
+            ] = "blocked"
+
+            state[
+                "blocked_reason"
+            ] = (
+                "rf_frequency_unsupported"
+            )
+
+            state[
+                "error"
+            ] = str(
+                error
             )
 
             return self._set_state(

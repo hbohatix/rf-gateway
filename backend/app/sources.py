@@ -36,6 +36,10 @@ from app.audio_decoder import (
     audio_decoder,
 )
 
+from app.direct_audio_client import (
+    validate_direct_audio_url,
+)
+
 
 router = APIRouter(
     prefix="/api/sources",
@@ -119,6 +123,7 @@ TAG_PATTERN = re.compile(
 SUPPORTED_SOURCE_TYPES = {
     "broadcastify_calls",
     "broadcastify_live_audio",
+    "direct_audio",
     "auto",
 }
 
@@ -1205,6 +1210,15 @@ def apply_current_audio_api_status(
     )
 
 
+    if source_type == "direct_audio":
+        probe["audio_api_configured"] = bool(shutil.which("ffmpeg"))
+        probe["playback_state"] = (
+            "configured" if probe["audio_api_configured"]
+            else "ffmpeg_not_installed"
+        )
+        current["probe"] = probe
+        return current
+
     if (
         source_type
         ==
@@ -1454,6 +1468,155 @@ def probe_broadcastify(
     }
 
 
+def probe_direct_audio(url: str) -> dict:
+    """Validate and probe an authorized direct media endpoint."""
+    canonical_url = validate_direct_audio_url(url)
+    configured = bool(shutil.which("ffmpeg"))
+    reachable = False
+    status = None
+    error_message = None
+    final_url = canonical_url
+    media_type = None
+
+    request = urllib.request.Request(
+        canonical_url,
+        headers={"User-Agent": "RF-Gateway/0.12", "Accept": "*/*"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=6) as response:
+            status = response.status
+            final_url = response.geturl()
+            validate_direct_audio_url(final_url)
+            media_type = response.headers.get_content_type()
+            supported_type = (
+                media_type.startswith(("audio/", "video/"))
+                or media_type in (
+                    "application/ogg",
+                    "application/octet-stream",
+                    "application/vnd.apple.mpegurl",
+                    "application/x-mpegurl",
+                )
+            )
+            reachable = bool(status in (200, 206) and supported_type)
+            if not reachable:
+                error_message = "URL did not return a supported audio media response"
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+            ValueError, OSError) as error:
+        status = getattr(error, "code", None)
+        error_message = f"Unable to access direct audio: {type(error).__name__}"
+
+    return {
+        "provider": "direct",
+        "source_type": "direct_audio",
+        "canonical_url": canonical_url,
+        "reachable": reachable,
+        "http_status": status,
+        "page_name": None,
+        "final_url": final_url,
+        "error": error_message,
+        "media_type": media_type,
+        "audio_api_configured": configured,
+        "playback_state": "configured" if configured else "ffmpeg_not_installed",
+        "playback_model": "continuous_stream",
+        "probed_at": utc_now(),
+    }
+
+
+def normalize_calls_selection(
+    *,
+    playlist_uuid: str | None = None,
+    group_ids: list[str] | None = None,
+) -> dict:
+    """Validate Calls identifiers without a website session or billable API call."""
+    import re
+
+    uuid_value = (playlist_uuid or "").strip()
+    groups = group_ids or []
+    if isinstance(groups, str):
+        groups = groups.split(",")
+    groups = [str(group).strip() for group in groups if str(group).strip()]
+    if bool(uuid_value) == bool(groups):
+        raise ValueError("Provide either playlist_uuid or group_ids")
+    if uuid_value:
+        if not re.fullmatch(r"[A-Za-z0-9-]{8,64}", uuid_value):
+            raise ValueError("Invalid playlist UUID")
+        return {
+            "playlist_uuid": uuid_value,
+            "canonical_url": (
+                "https://www.broadcastify.com/calls/playlists/?uuid="
+                + uuid_value
+            ),
+            "label": "Calls playlist " + uuid_value[:8],
+        }
+    if len(groups) > 5 or len(set(groups)) != len(groups):
+        raise ValueError("Choose 1–5 distinct Calls group IDs")
+    if any(not re.fullmatch(r"(?:[0-9]+-[0-9]+|c-[0-9]+)", group)
+           for group in groups):
+        raise ValueError("Group ID must be SID-TG (e.g. 2-3416) or c-FID")
+    ordered = sorted(groups)
+    return {
+        "group_ids": ordered,
+        "canonical_url": "bcfy-calls://groups/" + ",".join(ordered),
+        "label": "Calls groups: " + ", ".join(ordered),
+    }
+
+
+def register_calls_selection(
+    *,
+    playlist_uuid: str | None = None,
+    group_ids: list[str] | None = None,
+    name: str | None = None,
+) -> tuple[dict, bool]:
+    """Create/reuse a Calls selector source without a public-page request."""
+    selection = normalize_calls_selection(
+        playlist_uuid=playlist_uuid, group_ids=group_ids
+    )
+    store = load_store()
+    sources = store.setdefault("sources", [])
+    for current in sources:
+        if (current.get("type") == "broadcastify_calls"
+                and current.get("url") == selection["canonical_url"]):
+            return apply_current_audio_api_status(current), False
+
+    status = get_audio_api_status()
+    configured = bool(status.get("live_playback_configured", False))
+    now = utc_now()
+    probe = {
+        "provider": "broadcastify",
+        "source_type": "broadcastify_calls",
+        "canonical_url": selection["canonical_url"],
+        # Syntax is valid; actual permission/coverage is checked on polling.
+        "reachable": True,
+        "remote_verified": False,
+        "http_status": None,
+        "page_name": name or selection["label"],
+        "audio_api_configured": configured,
+        "playback_state": "configured" if configured else "api_not_configured",
+        "playback_model": "discrete_calls",
+        "probed_at": now,
+    }
+    source = {
+        "id": str(uuid.uuid4()),
+        "name": (name or selection["label"]).strip(),
+        "type": "broadcastify_calls",
+        "provider": "broadcastify",
+        "url": selection["canonical_url"],
+        "created_at": now,
+        "updated_at": now,
+        "probe": probe,
+        "managed_selection": True,
+    }
+    if "playlist_uuid" in selection:
+        source["playlist_uuid"] = selection["playlist_uuid"]
+        source["view"] = "playlist"
+    else:
+        source["group_ids"] = selection["group_ids"]
+        source["view"] = "groups"
+    sources.append(source)
+    save_store(store)
+    return source, True
+
+
 def get_source_or_404(
     source_id: str,
 ) -> dict:
@@ -1564,6 +1727,14 @@ def probe_broadcastify_endpoint(
         ) from error
 
 
+@router.post("/direct-audio/probe")
+def probe_direct_audio_endpoint(request: BroadcastifyProbeRequest):
+    try:
+        return probe_direct_audio(request.url)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @router.post("")
 def create_source(
     request:
@@ -1584,17 +1755,17 @@ def create_source(
             status_code=400,
             detail=(
                 "Supported source types are "
-                "broadcastify_calls and "
-                "broadcastify_live_audio"
+                "broadcastify_calls, "
+                "broadcastify_live_audio and direct_audio"
             ),
         )
 
 
     try:
         probe = (
-            probe_broadcastify(
-                request.url
-            )
+            probe_direct_audio(request.url)
+            if requested_type == "direct_audio"
+            else probe_broadcastify(request.url)
         )
 
 
@@ -1647,7 +1818,7 @@ def create_source(
             source_type,
 
         "provider":
-            "broadcastify",
+            probe["provider"],
 
         "url":
             probe[
@@ -1739,13 +1910,19 @@ def probe_existing_source(
     )
 
 
+    if source.get("managed_selection"):
+        current = apply_current_audio_api_status(source)
+        return {
+            **current,
+            "probe": current["probe"],
+            "remote_verified": False,
+        }
+
     try:
         probe = (
-            probe_broadcastify(
-                source[
-                    "url"
-                ]
-            )
+            probe_direct_audio(source["url"])
+            if source.get("type") == "direct_audio"
+            else probe_broadcastify(source["url"])
         )
 
 
@@ -1876,6 +2053,21 @@ def probe_existing_source(
 def delete_source(
     source_id: str,
 ):
+    # Do not strand Routes pointing at a deleted Source.
+    from app.routes import load_store as load_routes_store
+
+    used_by = [
+        item.get("id")
+        for item in load_routes_store().get("routes", [])
+        if item.get("source_id") == source_id
+    ]
+    if used_by:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Source is used by {len(used_by)} route(s)",
+        )
+
+
     store = (
         load_store()
     )

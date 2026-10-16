@@ -12,10 +12,10 @@ The project combines:
 - an **IMBE vocoder** path for P25,
 - Broadcastify Calls and Broadcastify Live Audio source handling.
 
-The current development focus is **P25 / C4FM end-to-end audio routing** through an SXceiver/SoapySX RF path.
+The current development focus is **P25 / C4FM end-to-end audio routing** across hardware-agnostic MMDVM backends. SXceiver/SoapySX is the first validated SDR path; classic MMDVM UART/USB/GPIO modems are being added as a parallel backend.
 
 > **Project status:** active development / experimental.  
-> P25 end-to-end transmission has been tested. FM, DMR and TETRA configuration exists, but their source-audio bridge paths are not yet at the same level of completion.
+> P25 end-to-end transmission has been validated on SXceiver/SoapySX. RF Gateway is designed to support both SDR-based MMDVM-IQ hardware and conventional MMDVM UART/USB/GPIO modems. FM, DMR and TETRA configuration exists, but their source-audio bridge paths are not yet at the same level of completion.
 
 ---
 
@@ -23,8 +23,11 @@ The current development focus is **P25 / C4FM end-to-end audio routing** through
 
 ### RF and modem stack
 
+- unified RF hardware discovery
+- conventional MMDVM modem discovery over UART/USB/GPIO
 - SoapySDR device discovery
-- SXceiver / SoapySX integration
+- MMDVM-IQ SDR integration
+- SXceiver / SoapySX integration as the first validated SDR path
 - MMDVM-IQ process management
 - MMDVM-Host process management
 - runtime generation of MMDVM-Host configuration
@@ -295,7 +298,73 @@ Main dependencies include:
 - MMDVM-Host
 - IMBE vocoder sources
 
-For the tested RF path, an SXceiver/SoapySX-compatible device is expected.
+RF Gateway supports two MMDVM hardware paths:
+
+- **MMDVM UART/USB/GPIO** — conventional MMDVM-compatible modems such as MMDVM_HS, MMDVM_HS Dual Hat, ZUMspot, DVMEGA and generic MMDVM boards. MMDVM-Host talks directly to the modem using its `uart` backend.
+- **MMDVM-IQ / SoapySDR** — SDR hardware supported by the installed SoapySDR driver and MMDVM-IQ. SXceiver/SoapySX is the first validated SDR path.
+
+Hardware support is capability-driven. A detected device may still reject a frequency or mode that its RF hardware or modem firmware does not support.
+
+---
+
+# Hardware backends
+
+## Conventional MMDVM modems
+
+RF Gateway can discover serial MMDVM candidates from locations including:
+
+```text
+/dev/serial/by-id/*
+/dev/ttyACM*
+/dev/ttyUSB*
+/dev/ttyAMA*
+/dev/serial0
+/dev/serial1
+```
+
+The first profile set is modeled after common Pi-Star hardware families:
+
+```text
+MMDVM_HS
+MMDVM_HS Dual Hat
+ZUMspot GPIO
+ZUMspot USB
+DVMEGA
+generic MMDVM USB/UART
+generic MMDVM GPIO/UART
+```
+
+These devices use the current MMDVM-Host UART configuration model:
+
+```ini
+[Modem]
+Protocol=uart
+UARTPort=/dev/ttyACM0
+UARTSpeed=115200
+```
+
+Device names are treated as profiles/hints. Actual protocol and RF-band support is determined by the connected modem firmware and RF hardware.
+
+## MMDVM-IQ / SoapySDR
+
+SDR-backed devices use MMDVM-IQ and SoapySDR.
+
+The RF Gateway MMDVM-IQ build currently allows these application-level amateur-band windows:
+
+```text
+144.000-148.000 MHz  US 2 m amateur profile
+420.000-450.000 MHz  existing upstream UHF range
+```
+
+The build script is:
+
+```bash
+bash scripts/build-mmdvm-iq.sh
+```
+
+The patch is applied only for compilation and the checked-out MMDVM-IQ submodule source is restored afterward.
+
+This does **not** imply that every SDR can transmit across those entire ranges. The selected SoapySDR hardware/driver must also support the requested frequency, and the operator remains responsible for legal band and emission use.
 
 ---
 
@@ -346,7 +415,7 @@ The installer performs the main development setup:
 - initializes Git submodules,
 - creates `backend/.venv`,
 - installs Python dependencies,
-- builds MMDVM-IQ,
+- builds MMDVM-IQ with the RF Gateway amateur-band frequency profile,
 - builds MMDVM-Host,
 - installs frontend dependencies,
 - verifies the frontend production build,
@@ -408,12 +477,38 @@ BROADCASTIFY_CALLS_JWT_TTL_SECONDS=3600
 BROADCASTIFY_CALLS_TIMEOUT_SECONDS=15
 
 BROADCASTIFY_CALLS_PLAYLIST_PATH=
-BROADCASTIFY_CALLS_LIVE_CALLS_PATH=https://www.broadcastify.com/calls/apis/live-calls
+BROADCASTIFY_CALLS_LIVE_CALLS_PATH=https://api.bcfy.io/calls/v1/live/
 BROADCASTIFY_CALLS_CALL_PATH=
 BROADCASTIFY_CALLS_GROUP_ARCHIVE_PATH=
 ```
 
 Use endpoint values and credentials appropriate for your approved Broadcastify Calls API access.
+
+### Calls API developer JWT authentication
+
+**Broadcastify Calls** uses the official `GET https://api.bcfy.io/calls/v1/live/` endpoint and an HS256 JWT (`kid`, `iss`, `iat`, `exp`) signed using `BROADCASTIFY_CALLS_SIGNING_SECRET`. RF Gateway signs calls automatically; it does **not** need, store or automate any website login cookie. The legacy `www.broadcastify.com/calls/apis/live-calls` AJAX endpoint has been removed from the Calls Worker; it returns `403 auth_required` without a website session.
+
+If you set `BROADCASTIFY_CALLS_LIVE_CALLS_PATH` explicitly in your local `backend/.env`, update it to `https://api.bcfy.io/calls/v1/live/` (or remove the key entirely to use the new default). Keep `BASE_URL=https://api.bcfy.io`. Old web endpoints are rejected to prevent leaking a developer JWT to another origin. **Never post your key ID, secret, minted JWT, or `.env` contents in public logs or chat.**
+
+Developer Calls polling now respects a **minimum five-second interval** and uses `playlist_uuid` plus a `pos` cursor; the server's `lastPos` advances the cursor. The web player's `doInit`, `sessionKey`, `systemId` and `sid=0` are not sent. HTTP 401/403 from the developer API requires checking credential configuration, issuer, entitlements or balance, not inventing a browser login flow.
+
+Start by checking local status without showing credentials:
+
+```bash
+cd backend && source .venv/bin/activate
+python - <<'PY'
+# Load backend/.env before importing the cached API client.
+import app.main
+from app.broadcastify_calls_client import broadcastify_calls_client as client
+s = client.configuration_status()
+for k in ("configured", "key_id_configured", "signing_secret_configured", "issuer_configured"):
+    print(k + ":", s.get(k))
+print("live_endpoint_correct:", client.config.live_calls_path.rstrip("/") == "https://api.bcfy.io/calls/v1/live")
+PY
+```
+
+This does not make a billable API call. Use a **single, deliberate** live query before activating a polling route.
+
 
 Do **not** commit real secrets.
 
@@ -494,7 +589,31 @@ npm run build
 
 # MMDVM runtime
 
-RF Gateway manages MMDVM-IQ and MMDVM-Host from the backend.
+RF Gateway selects the MMDVM runtime path from the chosen RF device.
+
+For an SDR device:
+
+```text
+RF Gateway
+  -> MMDVM-Host
+  -> UDP
+  -> MMDVM-IQ
+  -> SoapySDR
+  -> SDR
+  -> RF
+```
+
+For a conventional MMDVM modem:
+
+```text
+RF Gateway
+  -> MMDVM-Host
+  -> UART / USB / GPIO serial
+  -> MMDVM modem
+  -> RF
+```
+
+MMDVM-IQ is therefore required only for SDR-backed devices.
 
 Avoid starting another copy of MMDVM-IQ or MMDVM-Host manually while the backend-managed RF runtime is active.
 
@@ -576,7 +695,7 @@ OpenAPI schema:
 http://localhost:8000/openapi.json
 ```
 
-The API version currently used by the backend is `0.11.x`.
+The API version currently used by the backend is `0.12.x`.
 
 ---
 
@@ -650,7 +769,7 @@ curl -s -X PUT \
 
 ### `GET /api/devices`
 
-Discover currently available SoapySDR devices.
+Discover currently available RF hardware, including SoapySDR devices and MMDVM-compatible UART/USB/GPIO modems.
 
 ```bash
 curl -s \
@@ -678,7 +797,7 @@ Configure direct SoapySDR parameters.
 
 Close a directly managed device.
 
-Direct Soapy access is intentionally blocked while the MMDVM runtime owns the SXceiver.
+Direct Soapy access is intentionally blocked while the MMDVM runtime owns the selected SDR hardware.
 
 ---
 
@@ -802,6 +921,29 @@ curl -s -X POST \
 
 Live Audio transport currently uses the stream model used by the normal web player and decodes HLS media to local PCM with `curl` and FFmpeg.
 
+### Broadcastify sign-in / missing `hlsUrl`
+
+Since October 2026, Broadcastify requires sign-in to listen to web feeds. A feed's public HTML may still be reachable, while its HLS session values are absent. An installed `curl` / FFmpeg pair is **not** proof that listening access is available.
+
+For a `broadcastify_live_audio` route, `POST /api/routes/{route_id}/preflight` now tries to resolve the listening session. If no HLS session can be resolved, it reports `state: blocked`, `source_ready: false`, `blocked_reason: source_stream_unavailable`, and an explanatory `error` instead of indicating `SOURCE READY`. This validates session metadata, not continuous audio delivery.
+
+A free Broadcastify login is not automatically an approved programmatic audio API. If direct integration is needed, use an access method explicitly provided/approved by Broadcastify; their static audio URL requires Premium, and the audio feed catalog API requires a license. Listening access alone does not authorize retransmitting a feed over RF. The current RF Gateway HLS client does not implement an authenticated Broadcastify login or the Premium static audio transport.
+
+Run the no-network regression tests:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m unittest discover -s tests -p 'test_*.py'
+```
+
+
+## Direct HTTP audio as an independent source
+
+Routes → Add Route can also use a **Direct HTTP Audio (authorized)** URL when you own the source or have permission to programmatically process and transmit it. The existing P25 activity gate/IMBE pipeline is reused. FFmpeg decodes a continuous media stream to 8 kHz 16-bit mono PCM (320 bytes per 20 ms) and reconnects on failure; preflight probes for supported media MIME types. It does **not** unlock Broadcastify website HLS.
+
+To create a direct source in a single unified route setup, use `source_type: "direct_audio"` with `source_url`, `device_id`, `protocol: "p25"`, and `start_now: false`. A running route should be stopped before changing sources. For manual control use **Advanced → Sources → Direct HTTP Audio**.
+
 ### `POST /api/sources/broadcastify/probe`
 
 Probe a Broadcastify source URL.
@@ -819,6 +961,37 @@ Re-probe an existing source.
 Delete a source.
 
 ---
+
+## Unified Route Setup (recommended)
+
+The **Routes** panel is now the primary workflow. In one form, paste a Broadcastify Calls playlist or Live Audio feed URL (or choose an existing source), select the RF device and protocol, then choose **Create Route** or explicitly opt into **Create & Start**. The **Sources** panel remains accessible as an advanced section for manual probing/deletion.
+
+The backend preserves existing `sources.json`, `routes.yaml`, and old API endpoints; **no migration or duplicate manual activation** is necessary. An existing source with the same normalized URL is reused.
+
+```bash
+# Create/configure a Calls route in one request, without starting RF:
+curl -sS -X POST http://127.0.0.1:8000/api/routes/setup \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "source_url":"https://www.broadcastify.com/calls/playlists/?uuid=YOUR_UUID",
+    "device_id":"YOUR_RF_DEVICE_ID",
+    "protocol":"p25",
+    "start_now":false
+  }' | jq
+```
+
+You can instead send `"source_id": "EXISTING_SOURCE_ID"` (not both) and an optional `name`. Source kind is detected from the URL. Setting `start_now: true` **may initiate a real RF transmission** and should only be used intentionally when the operator is authorized to transmit. If preflight fails, the route remains saved and the response includes `start.started: false` and the detailed runtime error.
+
+Pressing **Start** on an existing disabled route now enables and starts it in the same operation. Broadcastify Live Audio sources that require browser sign-in remain blocked; use appropriately licensed Calls API access where applicable.
+
+### Edit or delete from Routes
+
+Expand a route and choose **Edit** to change its name, RF device, protocol and source (reuse an existing source or paste a new Broadcastify URL). The backend uses `PUT /api/routes/{route_id}/setup` and preserves the route ID. Edits require the route to be stopped; **Save Changes does not start RF**. Editing a route does not modify the source of any other route.
+
+Deleting a route from the UI asks for confirmation and calls `DELETE /api/routes/{route_id}?cleanup_source=true`. If the source is still used by other routes it is preserved; otherwise the now-unused source is deleted. The old DELETE endpoint without the optional flag still removes only the route. Advanced Sources now refuses to delete a source referenced by a route (HTTP 409), preventing broken configurations.
+
+**Data safety:** sources and routes are still stored in separate files. The server performs best-effort cleanup after partial failures; this is not a cross-file database transaction. Back up `backend/data/sources.json` and `backend/data/routes.yaml` before testing changes.
+
 
 # Route API
 
@@ -1370,3 +1543,21 @@ curl -s \
   http://127.0.0.1:8000/api/routes \
   | jq
 ```
+### Calls processing counters
+
+The Routes panel distinguishes **Received / Enqueued / Duplicates** from **Completed / Dequeued / Dropped / Cleared**. Clearing the queue (for example on route stop) no longer makes calls silently disappear from accounting; `total_cleared` tracks removals from that point onward, not historical removals before this version. During a call, the *last P25 records* field reports the latest successful P25 **network handoff** to MMDVM, not proof of transmission on an RF antenna. Actual on-air TX should be checked at MMDVM/radio.
+
+## Calls selectors directly in Routes
+
+The **Routes → Add Route** form can now create/reuse a Calls source directly from:
+
+- An existing saved source (including previously imported Calls playlists).
+- A Calls playlist UUID (no Broadcastify webpage lookup).
+- One to five Broadcastify Calls group identifiers, e.g. `2-3416,c-223312`.
+- An advanced full source URL (legacy Calls, Live Audio, or authorized direct HTTP media).
+
+`POST /api/routes/setup` and `PUT /api/routes/{id}/setup` accept exactly **one** of `source_id`, `source_url`, `playlist_uuid`, or `group_ids`. For group selection use an array of group strings: `"group_ids": ["2-3416", "c-223312"]`. The `broadcastify_calls` worker uses its existing JWT-authenticated `GET /calls/v1/live/` transport with the documented `groups` selector and `pos` cursor. Duplicate selections reuse the same persisted source.
+
+A syntactically valid Calls selector can be saved **without any external request**. The new sources carry `remote_verified: false` because actual playlist/group visibility is confirmed only by a subsequent live API poll, which may be billed. Saving a route does not start the RF transmitter unless `start_now` is explicitly selected.
+
+This does not yet provide a remote, searchable Broadcastify Calls catalog: the exact authenticated discovery endpoint schemas must be confirmed against the user's Developer Portal documentation before implementing listing by county/system. No undocumented API endpoints are invented here.

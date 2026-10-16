@@ -144,6 +144,7 @@ export interface RouteQueueStats {
   total_dequeued: number;
   total_duplicates: number;
   total_dropped: number;
+  total_cleared?: number;
 
   created_at: string;
   updated_at: string;

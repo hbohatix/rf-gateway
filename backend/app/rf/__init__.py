@@ -3,6 +3,13 @@ from .device_manager import (
     rf_device_manager,
 )
 
+from .discovery import (
+    discover_mmdvm_uart_devices,
+    discover_rf_devices,
+    get_rf_device,
+    validate_device_frequency,
+)
+
 from .soapysdr import (
     discover_soapy_devices,
 )
@@ -13,7 +20,11 @@ from .soapy_device import (
 
 
 __all__ = [
+    "discover_mmdvm_uart_devices",
+    "discover_rf_devices",
     "discover_soapy_devices",
+    "get_rf_device",
+    "validate_device_frequency",
     "SoapyRFDevice",
     "RFDeviceManager",
     "rf_device_manager",
