@@ -188,13 +188,32 @@ type CallsProcessorStatus = {
   audio_bridge_count?: number;
   calls_completed?: number;
   current_call_error_stage?: string | null;
+  last_rf_tx_evidence?: {
+    modem_reported_tx?: boolean;
+    modem_tx_on_events?: number;
+    modem_tx_off_events?: number;
+    mmdvm_errors?: string[];
+    rf_verified?: boolean;
+    rf?: {state?: string; power_dbm?: number | null};
+    verification_note?: string;
+  } | null;
   last_audio_bridge_result?: {
     network_records?: number;
     sender_stats?: Record<string, unknown>;
   } | null;
 };
 
+type RfTxStatus = {
+  runtime_active?: boolean;
+  runtime_ready?: boolean;
+  modem_rf_tx_active?: boolean;
+  rf_verified?: boolean;
+  hardware_tx_observation?: string;
+  last_error?: string | null;
+};
+
 type RouteStatusResponse = {
+  rf_tx?: RfTxStatus | null;
   runtime:
     RouteRuntimeStatus
     | null;
@@ -2217,6 +2236,8 @@ function RoutesPanel({
                 status
                   ?.queue;
               const processor = status?.processor ?? null;
+              const rfTx = status?.rf_tx ?? null;
+              const rfEvidence = processor?.last_rf_tx_evidence ?? null;
 
               const busy =
                 actionRouteId
@@ -2885,6 +2906,48 @@ function RoutesPanel({
                             </div>
                           )}
 
+
+                          <div className="route-worker">
+                            <div className="route-worker__header">
+                              <span>RF TX MONITOR (MMDVM)</span>
+                              <strong className={"route-worker__state " +
+                                (rfTx?.modem_rf_tx_active ? "running" : "stopped")}>
+                                {rfTx?.modem_rf_tx_active ? "MODEM TX ON" :
+                                  rfTx?.runtime_active ? "MODEM IDLE" : "NO RUNTIME"}
+                              </strong>
+                            </div>
+                            <div className="route-worker__stats">
+                              <div>
+                                <span>Last network records</span>
+                                <strong>{processor?.last_audio_bridge_result?.network_records ?? 0}</strong>
+                              </div>
+                              <div>
+                                <span>Last UDP datagrams</span>
+                                <strong>{String(processor?.last_audio_bridge_result?.sender_stats?.datagrams_sent ?? "--")}</strong>
+                              </div>
+                              <div>
+                                <span>Modem TX ON events</span>
+                                <strong>{rfEvidence?.modem_tx_on_events ?? "--"}</strong>
+                              </div>
+                              <div>
+                                <span>Radiated RF evidence</span>
+                                <strong>{rfEvidence?.rf_verified
+                                  ? "RF DETECTED" : rfEvidence ? "UNVERIFIED" : "NO DATA"}</strong>
+                              </div>
+                            </div>
+                            <div className="route-worker__hint">
+                              MMDVM TX ON = modem report, not proof of antenna output.
+                              Independent RF confirmation requires an external receiver.
+                              {rfEvidence?.rf?.power_dbm != null
+                                ? ` Last RF power: ${rfEvidence.rf.power_dbm} dBm.` : ""}
+                            </div>
+                            {rfTx?.last_error && (
+                              <div className="route-worker__error">MMDVM: {rfTx.last_error}</div>
+                            )}
+                            {rfEvidence?.mmdvm_errors?.map((message, index) => (
+                              <div className="route-worker__error" key={index}>{message}</div>
+                            ))}
+                          </div>
 
                           <div className="route-worker">
                             <div className="route-worker__header">
