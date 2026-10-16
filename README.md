@@ -930,6 +930,28 @@ Delete a source.
 
 ---
 
+## Unified Route Setup (recommended)
+
+The **Routes** panel is now the primary workflow. In one form, paste a Broadcastify Calls playlist or Live Audio feed URL (or choose an existing source), select the RF device and protocol, then choose **Create Route** or explicitly opt into **Create & Start**. The **Sources** panel remains accessible as an advanced section for manual probing/deletion.
+
+The backend preserves existing `sources.json`, `routes.yaml`, and old API endpoints; **no migration or duplicate manual activation** is necessary. An existing source with the same normalized URL is reused.
+
+```bash
+# Create/configure a Calls route in one request, without starting RF:
+curl -sS -X POST http://127.0.0.1:8000/api/routes/setup \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "source_url":"https://www.broadcastify.com/calls/playlists/?uuid=YOUR_UUID",
+    "device_id":"YOUR_RF_DEVICE_ID",
+    "protocol":"p25",
+    "start_now":false
+  }' | jq
+```
+
+You can instead send `"source_id": "EXISTING_SOURCE_ID"` (not both) and an optional `name`. Source kind is detected from the URL. Setting `start_now: true` **may initiate a real RF transmission** and should only be used intentionally when the operator is authorized to transmit. If preflight fails, the route remains saved and the response includes `start.started: false` and the detailed runtime error.
+
+Pressing **Start** on an existing disabled route now enables and starts it in the same operation. Broadcastify Live Audio sources that require browser sign-in remain blocked; use appropriately licensed Calls API access where applicable.
+
 # Route API
 
 Base path:
