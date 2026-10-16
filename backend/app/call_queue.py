@@ -135,6 +135,8 @@ class RouteCallQueue:
 
         self._total_dropped = 0
 
+        self._total_cleared = 0
+
         self._created_at = (
             utc_now()
         )
@@ -570,6 +572,7 @@ class RouteCallQueue:
 
 
             self._queue.clear()
+            self._total_cleared += removed
 
 
             if clear_seen:
@@ -590,6 +593,9 @@ class RouteCallQueue:
 
                 "seen_cleared":
                     clear_seen,
+
+                "total_cleared":
+                    self._total_cleared,
             }
 
 
@@ -628,6 +634,9 @@ class RouteCallQueue:
 
                 "total_dropped":
                     self._total_dropped,
+
+                "total_cleared":
+                    self._total_cleared,
 
                 "created_at":
                     self._created_at,

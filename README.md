@@ -1543,3 +1543,6 @@ curl -s \
   http://127.0.0.1:8000/api/routes \
   | jq
 ```
+### Calls processing counters
+
+The Routes panel distinguishes **Received / Enqueued / Duplicates** from **Completed / Dequeued / Dropped / Cleared**. Clearing the queue (for example on route stop) no longer makes calls silently disappear from accounting; `total_cleared` tracks removals from that point onward, not historical removals before this version. During a call, the *last P25 records* field reports the latest successful P25 **network handoff** to MMDVM, not proof of transmission on an RF antenna. Actual on-air TX should be checked at MMDVM/radio.
