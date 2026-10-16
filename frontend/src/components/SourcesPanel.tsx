@@ -72,6 +72,7 @@ type SourcesResponse = {
 
 
 type SourcesPanelProps = {
+  refreshKey?: number;
   onCountChange?:
     (
       count: number
@@ -109,6 +110,7 @@ function SourcesPanel(
 ) {
   const {
     onCountChange,
+    refreshKey,
   } = props;
 
 
@@ -308,7 +310,7 @@ function SourcesPanel(
     () => {
       void loadSources();
     },
-    []
+    [refreshKey]
   );
 
 
