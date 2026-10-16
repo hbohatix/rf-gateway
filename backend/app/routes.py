@@ -29,6 +29,8 @@ from app.broadcastify_live_audio_client import (
     broadcastify_live_audio_client,
 )
 
+from app.rf.tx_observer import live_rf_tx_status
+
 from app.broadcastify_worker import (
     broadcastify_worker_manager,
 )
@@ -1326,6 +1328,7 @@ def get_route_runtime(
             .get(
                 route_id
             ),
+        "rf_tx": live_rf_tx_status(),
 
         "worker":
             get_worker_status(
