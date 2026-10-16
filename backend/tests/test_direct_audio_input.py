@@ -90,6 +90,9 @@ class DirectAudioTests(TestCase):
             protocol="p25",
         )
         self.assertIsInstance(pipeline.client, DirectAudioClient)
+        self.assertEqual(pipeline.client.chunk_duration_ms, 20)
+        self.assertEqual(pipeline.client.sample_rate, 8000)
+        self.assertEqual(pipeline._activity_config().chunk_duration_ms, 20)
         self.assertEqual(
             pipeline._validate_source(), source["url"]
         )
