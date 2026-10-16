@@ -2075,23 +2075,18 @@ function RoutesPanel({
                 source?.type === "broadcastify_live_audio"
                 || source?.type === "direct_audio";
 
-              const pipelineLabel =
-                isLiveAudio
-                  ? getLiveAudioStateLabel(
-                      liveAudio
-                    )
-                  : getWorkerStateLabel(
-                      worker
-                    );
+              const processorFailed = !isLiveAudio && Boolean(processor?.error);
+              const pipelineLabel = processorFailed
+                ? "PROCESSOR ERROR"
+                : isLiveAudio
+                  ? getLiveAudioStateLabel(liveAudio)
+                  : getWorkerStateLabel(worker);
 
-              const pipelineClass =
-                isLiveAudio
-                  ? getLiveAudioStateClass(
-                      liveAudio
-                    )
-                  : getWorkerStateClass(
-                      worker
-                    );
+              const pipelineClass = processorFailed
+                ? "error"
+                : isLiveAudio
+                  ? getLiveAudioStateClass(liveAudio)
+                  : getWorkerStateClass(worker);
 
 
               return (
