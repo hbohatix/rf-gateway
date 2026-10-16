@@ -114,5 +114,105 @@ class UnifiedRouteSetupTests(unittest.TestCase):
         preflight.assert_called_once()
 
 
+
+class RouteEditingAndCleanupTests(unittest.TestCase):
+    def _request(self, **kwargs):
+        return RouteSetupRequest(
+            device_id="soapy-0", protocol="p25", **kwargs
+        )
+
+    @patch("app.routes.update_route")
+    @patch("app.routes.get_live_audio_status", return_value=None)
+    @patch("app.routes.get_worker_status", return_value=None)
+    @patch("app.routes.route_runtime_manager.get", return_value={"state": "stopped", "active": False})
+    @patch("app.routes.get_source_or_404")
+    @patch("app.routes.get_route_or_404")
+    def test_edit_reuses_source_and_keeps_route_stopped(
+        self, get_route, get_source, runtime, worker, live, update
+    ):
+        from app.routes import edit_route_setup
+
+        get_route.return_value = {"id": "r", "name": "Old", "enabled": False}
+        get_source.return_value = {"id": "s", "name": "Source"}
+        update.return_value = {"id": "r", "name": "New"}
+        result = edit_route_setup(
+            "r", self._request(source_id="s", name="New")
+        )
+        self.assertFalse(result["start_requested"])
+        self.assertEqual(update.call_args.args[1].enabled, None)
+        self.assertEqual(update.call_args.args[1].source_id, "s")
+
+    @patch("app.routes.get_route_or_404", return_value={"id": "r", "name": "R"})
+    @patch("app.routes.route_runtime_manager.get", return_value={"active": True})
+    def test_edit_running_route_blocked_before_source_change(self, runtime, get_route):
+        from app.routes import edit_route_setup
+
+        with self.assertRaises(HTTPException) as ctx:
+            edit_route_setup(
+                "r", self._request(source_url="https://example.org/media")
+            )
+        self.assertEqual(ctx.exception.status_code, 409)
+
+    @patch("app.routes.get_route_or_404", return_value={"id": "r", "name": "R"})
+    def test_edit_does_not_start_rf(self, get_route):
+        from app.routes import edit_route_setup
+
+        with self.assertRaises(HTTPException) as ctx:
+            edit_route_setup(
+                "r", self._request(source_id="s", start_now=True)
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    @patch("app.routes.route_runtime_manager.remove")
+    @patch("app.routes.call_queue_manager.remove_queue")
+    @patch("app.routes.call_processor_manager.remove")
+    @patch("app.routes.broadcastify_worker_manager.remove")
+    @patch("app.routes.broadcastify_live_audio_pipeline_manager.remove")
+    @patch("app.routes.delete_source")
+    @patch("app.routes.save_store")
+    @patch("app.routes.load_store")
+    def test_delete_shared_source_keeps_source(
+        self, load, save, delete_source, live, worker, processor, queue, runtime
+    ):
+        from app.routes import delete_route
+        load.return_value = {"routes": [
+            {"id": "a", "source_id": "shared"},
+            {"id": "b", "source_id": "shared"},
+        ]}
+        result = delete_route("a", cleanup_source=True)
+        self.assertTrue(result["source_shared"])
+        self.assertFalse(result["source_deleted"])
+        delete_source.assert_not_called()
+        self.assertEqual(len(save.call_args.args[0]["routes"]), 1)
+
+    @patch("app.routes.route_runtime_manager.remove")
+    @patch("app.routes.call_queue_manager.remove_queue")
+    @patch("app.routes.call_processor_manager.remove")
+    @patch("app.routes.broadcastify_worker_manager.remove")
+    @patch("app.routes.broadcastify_live_audio_pipeline_manager.remove")
+    @patch("app.routes.delete_source")
+    @patch("app.routes.save_store")
+    @patch("app.routes.load_store")
+    def test_delete_last_route_cleans_orphan(
+        self, load, save, delete_source, live, worker, processor, queue, runtime
+    ):
+        from app.routes import delete_route
+        load.return_value = {"routes": [{"id": "only", "source_id": "my-source"}]}
+        result = delete_route("only", cleanup_source=True)
+        self.assertTrue(result["source_deleted"])
+        self.assertFalse(result["source_shared"])
+        delete_source.assert_called_once_with("my-source")
+        self.assertEqual(save.call_args.args[0]["routes"], [])
+
+    @patch("app.routes.load_store", return_value={"routes": [
+        {"id": "route", "source_id": "kept"}
+    ]})
+    def test_advanced_source_delete_rejects_in_use_source(self, load):
+        from app.sources import delete_source
+        with self.assertRaises(HTTPException) as ctx:
+            delete_source("kept")
+        self.assertEqual(ctx.exception.status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()
