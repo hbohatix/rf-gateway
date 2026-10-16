@@ -497,6 +497,8 @@ Start by checking local status without showing credentials:
 ```bash
 cd backend && source .venv/bin/activate
 python - <<'PY'
+# Load backend/.env before importing the cached API client.
+import app.main
 from app.broadcastify_calls_client import broadcastify_calls_client as client
 s = client.configuration_status()
 for k in ("configured", "key_id_configured", "signing_secret_configured", "issuer_configured"):
