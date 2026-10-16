@@ -812,6 +812,14 @@ function RoutesPanel({
       false
     );
 
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [editSourceMode, setEditSourceMode] = useState<"saved" | "url">("saved");
+  const [editSourceId, setEditSourceId] = useState("");
+  const [editSourceUrl, setEditSourceUrl] = useState("");
+  const [editRouteName, setEditRouteName] = useState("");
+  const [editDeviceId, setEditDeviceId] = useState("");
+  const [editProtocol, setEditProtocol] = useState<Protocol>("p25");
+
   const [sourceMode, setSourceMode] = useState<"url" | "saved">("url");
   const [sourceUrl, setSourceUrl] = useState("");
   const [routeName, setRouteName] = useState("");
@@ -1468,6 +1476,64 @@ function RoutesPanel({
         );
       }
     };
+
+
+  const openRouteEditor = (route: Route) => {
+    setEditingRouteId(route.id);
+    setEditRouteName(route.name);
+    setEditSourceMode("saved");
+    setEditSourceId(route.source_id);
+    setEditSourceUrl("");
+    setEditDeviceId(route.device_id);
+    setEditProtocol(route.protocol);
+    setExpandedRoutes((current) => ({ ...current, [route.id]: true }));
+    setError(null);
+  };
+
+  const saveEditedRoute = async (route: Route) => {
+    if (!editRouteName.trim() || !editDeviceId) {
+      setError("Enter a route name and RF device");
+      return;
+    }
+    if (editSourceMode === "saved" ? !editSourceId : !editSourceUrl.trim()) {
+      setError("Select a source or provide its URL");
+      return;
+    }
+
+    setActionRouteId(route.id);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/routes/${route.id}/setup`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: editRouteName.trim(),
+            source_id: editSourceMode === "saved" ? editSourceId : null,
+            source_url: editSourceMode === "url" ? editSourceUrl.trim() : null,
+            device_id: editDeviceId,
+            protocol: editProtocol,
+            start_now: false,
+          }),
+        }
+      );
+      const data = await readApiObject(response);
+      if (!response.ok) {
+        throw new Error(
+          getApiError(data, `Unable to save route: HTTP ${response.status}`)
+        );
+      }
+
+      setEditingRouteId(null);
+      await refreshAll();
+      if (data?.source_created) onSourceCreated?.();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save route");
+    } finally {
+      setActionRouteId(null);
+    }
+  };
 
 
   const handleDelete =
