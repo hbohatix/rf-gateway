@@ -2882,7 +2882,7 @@ function RoutesPanel({
                                 </div>
                                 <div>
                                   <span>Last P25 records</span>
-                                  <strong>{processor?.last_audio_bridge_result?.network_records ?? 0}</strong>
+                                  <strong>{isLiveAudio ? (liveAudio?.p25?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
                                 </div>
                               </div>
 
@@ -2923,11 +2923,11 @@ function RoutesPanel({
                               </div>
                               <div>
                                 <span>Last UDP datagrams</span>
-                                <strong>{String(processor?.last_audio_bridge_result?.sender_stats?.datagrams_sent ?? "--")}</strong>
+                                <strong>{isLiveAudio ? "see P25 records" : String(processor?.last_audio_bridge_result?.sender_stats?.datagrams_sent ?? "--")}</strong>
                               </div>
                               <div>
                                 <span>Modem TX ON events</span>
-                                <strong>{rfEvidence?.modem_tx_on_events ?? "--"}</strong>
+                                <strong>{isLiveAudio ? (liveAudio?.tx_start_count ?? "--") : (rfEvidence?.modem_tx_on_events ?? "--")}</strong>
                               </div>
                               <div>
                                 <span>Radiated RF evidence</span>
