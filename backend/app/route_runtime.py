@@ -296,11 +296,19 @@ class RouteRuntimeManager:
                 "state"
             ] = "blocked"
 
-            state[
-                "blocked_reason"
-            ] = (
-                "source_audio_not_configured"
+            playback_error = source_probe.get(
+                "playback_error"
             )
+
+            if playback_error:
+                state["blocked_reason"] = (
+                    "source_stream_unavailable"
+                )
+                state["error"] = str(playback_error)
+            else:
+                state["blocked_reason"] = (
+                    "source_audio_not_configured"
+                )
 
             return self._set_state(
                 route_id,
