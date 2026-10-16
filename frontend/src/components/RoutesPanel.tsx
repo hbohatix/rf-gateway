@@ -310,6 +310,18 @@ function getSourceDisplayName(
 }
 
 
+function getSourceSelectionLabel(source: Source): string {
+  const suffix = source.type === "broadcastify_calls"
+    ? "Calls API / JWT"
+    : source.type === "broadcastify_live_audio"
+      ? "LEGACY Live Audio / website sign-in"
+      : source.type === "direct_audio"
+        ? "Direct HTTP Audio"
+        : source.type;
+  return `${getSourceDisplayName(source)} — ${suffix}`;
+}
+
+
 function getDeviceDisplayName(
   device:
     RFDevice
@@ -901,6 +913,9 @@ function RoutesPanel({
     >(
       null
     );
+
+  // A route-specific failure must not look like a global Calls API outage.
+  const [routeActionErrors, setRouteActionErrors] = useState<Record<string, string>>({});
 
   const [
     actionRouteId,
@@ -1809,9 +1824,12 @@ function RoutesPanel({
         route.id
       );
 
-      setError(
-        null
-      );
+      setError(null);
+      setRouteActionErrors((current) => {
+        const next = { ...current };
+        delete next[route.id];
+        return next;
+      });
 
       try {
         const response =
@@ -1866,9 +1884,10 @@ function RoutesPanel({
           caught instanceof
           Error
         ) {
-          setError(
-            caught.message
-          );
+          setRouteActionErrors((current) => ({
+            ...current,
+            [route.id]: caught.message,
+          }));
         }
 
       } finally {
@@ -2072,7 +2091,7 @@ function RoutesPanel({
               >
                 {sources.map((source) => (
                   <option key={source.id} value={source.id}>
-                    {getSourceDisplayName(source)}
+                    {getSourceSelectionLabel(source)}
                   </option>
                 ))}
               </select>
@@ -2084,7 +2103,7 @@ function RoutesPanel({
                 value={sourceKind}
                 onChange={(event) => setSourceKind(event.target.value as "auto" | "direct_audio")}
               >
-                <option value="auto">Broadcastify Calls / Live (detect)</option>
+                <option value="auto">Broadcastify URL (Calls playlist preferred)</option>
                 <option value="direct_audio">Direct HTTP audio (authorized)</option>
               </select>
               <input
@@ -2259,6 +2278,10 @@ function RoutesPanel({
               const isLiveAudio =
                 source?.type === "broadcastify_live_audio"
                 || source?.type === "direct_audio";
+              const legacyLiveSource = source?.type === "broadcastify_live_audio";
+              const legacyLiveBlocked = legacyLiveSource &&
+                runtime?.blocked_reason === "source_stream_unavailable";
+              const routeActionError = routeActionErrors[route.id];
 
               const processorFailed = !isLiveAudio && Boolean(processor?.error);
               const pipelineLabel = processorFailed
@@ -2420,6 +2443,38 @@ function RoutesPanel({
                     </div>
 
 
+                    {(routeActionError || legacyLiveBlocked) && (
+                      <div className="route-worker__error" role="alert">
+                        {routeActionError && <div>{routeActionError}</div>}
+                        {legacyLiveBlocked && !routeActionError && (
+                          <div>Legacy Broadcastify Live Audio is unavailable without a website playback session.</div>
+                        )}
+                        {legacyLiveSource && (
+                          <>
+                            <div>
+                              This is a website Live Audio feed, not Broadcastify Calls.
+                              Developer JWT works for Calls playlists/groups/nodes, not this HLS feed.
+                            </div>
+                            {!running && (
+                              <button type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  openRouteEditor(route);
+                                  setEditSourceMode("catalog");
+                                  setRouteActionErrors((current) => {
+                                    const next = { ...current };
+                                    delete next[route.id];
+                                    return next;
+                                  });
+                                }}>
+                                CHOOSE CALLS API SOURCE
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {expanded && (
                       <>
                         {editingRouteId === route.id && (
@@ -2461,7 +2516,7 @@ function RoutesPanel({
                                     onChange={(event) => setEditSourceId(event.target.value)}>
                                     {sources.map((item) => (
                                       <option key={item.id} value={item.id}>
-                                        {getSourceDisplayName(item)}
+                                        {getSourceSelectionLabel(item)}
                                       </option>
                                     ))}
                                   </select>
