@@ -145,6 +145,7 @@ class RouteSetupRequest(BaseModel):
     ] = "auto"
     playlist_uuid: str | None = None
     group_ids: list[str] | None = None
+    node_id: str | None = None
     start_now: bool = False
 
 
@@ -1110,21 +1111,23 @@ def resolve_setup_source(request: RouteSetupRequest) -> tuple[dict, bool]:
         bool(source_url),
         bool((request.playlist_uuid or "").strip()),
         bool(request.group_ids),
+        bool((request.node_id or "").strip()),
     ]
     if sum(selectors) != 1:
         raise HTTPException(
             status_code=400,
-            detail="Provide exactly one: source_id, source_url, playlist_uuid or group_ids",
+            detail="Provide exactly one: source_id, source_url, playlist_uuid, group_ids or node_id",
         )
 
     if existing_id:
         return get_source_or_404(existing_id), False
 
-    if request.playlist_uuid or request.group_ids:
+    if request.playlist_uuid or request.group_ids or request.node_id:
         try:
             return register_calls_selection(
                 playlist_uuid=request.playlist_uuid,
                 group_ids=request.group_ids,
+                node_id=request.node_id,
                 name=request.name,
             )
         except ValueError as error:
