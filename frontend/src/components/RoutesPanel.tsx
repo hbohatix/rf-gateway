@@ -188,13 +188,32 @@ type CallsProcessorStatus = {
   audio_bridge_count?: number;
   calls_completed?: number;
   current_call_error_stage?: string | null;
+  last_rf_tx_evidence?: {
+    modem_reported_tx?: boolean;
+    modem_tx_on_events?: number;
+    modem_tx_off_events?: number;
+    mmdvm_errors?: string[];
+    rf_verified?: boolean;
+    rf?: {state?: string; power_dbm?: number | null};
+    verification_note?: string;
+  } | null;
   last_audio_bridge_result?: {
     network_records?: number;
     sender_stats?: Record<string, unknown>;
   } | null;
 };
 
+type RfTxStatus = {
+  runtime_active?: boolean;
+  runtime_ready?: boolean;
+  modem_rf_tx_active?: boolean;
+  rf_verified?: boolean;
+  hardware_tx_observation?: string;
+  last_error?: string | null;
+};
+
 type RouteStatusResponse = {
+  rf_tx?: RfTxStatus | null;
   runtime:
     RouteRuntimeStatus
     | null;
@@ -732,6 +751,83 @@ function getApiError(
 }
 
 
+type CatalogItem = {
+  kind: "playlist" | "group" | "node";
+  id: string;
+  name: string;
+  url: string;
+};
+
+function CallsCatalogPicker({
+  apiBaseUrl,
+  onSelect,
+}: {
+  apiBaseUrl: string;
+  onSelect: (item: CatalogItem) => void;
+}) {
+  const [kind, setKind] = useState<CatalogItem["kind"]>("playlist");
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<CatalogItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [scope, setScope] = useState("");
+  const search = async () => {
+    setBusy(true);
+    setMessage(null);
+    setItems([]);
+    try {
+      const params = new URLSearchParams({ kind, q: query.trim(), limit: "100" });
+      const res = await fetch(`${apiBaseUrl}/api/sources/broadcastify/catalog?${params}`);
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.detail || `Catalog HTTP ${res.status}`);
+      setItems(body.items || []);
+      setScope(body.catalog_scope || "");
+      if (!body.items?.length) setMessage("No entries matching your search.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Catalog not available");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="calls-catalog">
+      <div className="calls-catalog__search">
+        <select value={kind} onChange={(event) => {
+          setKind(event.target.value as CatalogItem["kind"]);
+          setItems([]);
+          setMessage(null);
+        }}>
+          <option value="playlist">Public playlists</option>
+          <option value="group">Active groups (sample)</option>
+          <option value="node">Active systems/sites (sample)</option>
+        </select>
+        <input type="search" value={query} placeholder="FDNY, Indianapolis, dispatch..."
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); void search(); }
+          }} />
+        <button type="button" disabled={busy} onClick={() => { void search(); }}>
+          {busy ? "LOADING..." : "SEARCH"}
+        </button>
+      </div>
+      {scope === "live_sample_only" && (
+        <small>Currently active public sample only, not the full county catalog.</small>
+      )}
+      {message && <small>{message}</small>}
+      <div className="calls-catalog__results">
+        {items.map((item) => (
+          <button type="button" className="calls-catalog__item"
+            key={`${item.kind}:${item.id}`} onClick={() => onSelect(item)}>
+            <span>{item.name}</span>
+            <small>{item.kind} · {item.id} · SELECT</small>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 function RoutesPanel({
   apiBaseUrl,
   onRoutesChanged,
@@ -834,7 +930,8 @@ function RoutesPanel({
     );
 
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
-  const [editSourceMode, setEditSourceMode] = useState<"saved" | "url" | "playlist" | "groups">("saved");
+  const [editSourceMode, setEditSourceMode] = useState<"saved" | "url" | "playlist" | "groups" | "node" | "catalog">("saved");
+  const [editNodeId, setEditNodeId] = useState("");
   const [editPlaylistUuid, setEditPlaylistUuid] = useState("");
   const [editGroups, setEditGroups] = useState("");
   const [editSourceId, setEditSourceId] = useState("");
@@ -844,7 +941,8 @@ function RoutesPanel({
   const [editDeviceId, setEditDeviceId] = useState("");
   const [editProtocol, setEditProtocol] = useState<Protocol>("p25");
 
-  const [sourceMode, setSourceMode] = useState<"url" | "saved" | "playlist" | "groups">("playlist");
+  const [sourceMode, setSourceMode] = useState<"url" | "saved" | "playlist" | "groups" | "node" | "catalog">("catalog");
+  const [nodeId, setNodeId] = useState("");
   const [playlistUuid, setPlaylistUuid] = useState("");
   const [callsGroups, setCallsGroups] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -1359,6 +1457,12 @@ function RoutesPanel({
 
 
   const handleCreateRoute = async () => {
+    if (sourceMode === "catalog") {
+      setError("Select a Calls catalog result first"); return;
+    }
+    if (sourceMode === "node" && !nodeId.trim()) {
+      setError("Select a Calls node"); return;
+    }
     if (sourceMode === "playlist" && !playlistUuid.trim()) {
       setError("Enter a Calls playlist UUID");
       return;
@@ -1394,6 +1498,7 @@ function RoutesPanel({
             source_url: sourceMode === "url" ? sourceUrl.trim() : null,
             source_type: sourceMode === "url" ? sourceKind : "auto",
             playlist_uuid: sourceMode === "playlist" ? playlistUuid.trim() : null,
+            node_id: sourceMode === "node" ? nodeId.trim() : null,
             group_ids: sourceMode === "groups" ? callsGroups.split(",").map((s) => s.trim()).filter(Boolean) : null,
             device_id: selectedDeviceId,
             protocol: selectedProtocol,
@@ -1413,6 +1518,7 @@ function RoutesPanel({
       setSourceKind("auto");
       setPlaylistUuid("");
       setCallsGroups("");
+      setNodeId("");
       setRouteName("");
       setStartNow(false);
       await refreshAll();
@@ -1528,6 +1634,7 @@ function RoutesPanel({
     setEditSourceKind("auto");
     setEditPlaylistUuid("");
     setEditGroups("");
+    setEditNodeId("");
     setEditDeviceId(route.device_id);
     setEditProtocol(route.protocol);
     setExpandedRoutes((current) => ({ ...current, [route.id]: true }));
@@ -1542,7 +1649,9 @@ function RoutesPanel({
     if ((editSourceMode === "saved" && !editSourceId) ||
         (editSourceMode === "url" && !editSourceUrl.trim()) ||
         (editSourceMode === "playlist" && !editPlaylistUuid.trim()) ||
-        (editSourceMode === "groups" && !editGroups.trim())) {
+        (editSourceMode === "groups" && !editGroups.trim()) ||
+        (editSourceMode === "node" && !editNodeId.trim()) ||
+        editSourceMode === "catalog") {
       setError("Select a source or provide its URL");
       return;
     }
@@ -1561,6 +1670,7 @@ function RoutesPanel({
             source_url: editSourceMode === "url" ? editSourceUrl.trim() : null,
             source_type: editSourceMode === "url" ? editSourceKind : "auto",
             playlist_uuid: editSourceMode === "playlist" ? editPlaylistUuid.trim() : null,
+            node_id: editSourceMode === "node" ? editNodeId.trim() : null,
             group_ids: editSourceMode === "groups" ? editGroups.split(",").map((s) => s.trim()).filter(Boolean) : null,
             device_id: editDeviceId,
             protocol: editProtocol,
@@ -1902,16 +2012,36 @@ function RoutesPanel({
             <select
               value={sourceMode}
               onChange={(event) => setSourceMode(event.target.value as
-                "playlist" | "groups" | "saved" | "url")}
+                "playlist" | "groups" | "saved" | "url" | "node" | "catalog")}
             >
+              <option value="catalog">Browse Broadcastify Calls</option>
               <option value="playlist">Calls playlist UUID</option>
               <option value="groups">Calls group IDs (1–5)</option>
+              <option value="node">Calls node ID</option>
               <option value="saved">Existing saved source</option>
               <option value="url">Advanced: Source URL</option>
             </select>
           </label>
 
-          {sourceMode === "playlist" ? (
+          {sourceMode === "catalog" ? (
+            <div className="route-create__wide">
+              <CallsCatalogPicker apiBaseUrl={apiBaseUrl} onSelect={(item) => {
+                setRouteName(item.name);
+                if (item.kind === "playlist") {
+                  setPlaylistUuid(item.id); setSourceMode("playlist");
+                } else if (item.kind === "group") {
+                  setCallsGroups(item.id); setSourceMode("groups");
+                } else {
+                  setNodeId(item.id); setSourceMode("node");
+                }
+              }} />
+            </div>
+          ) : sourceMode === "node" ? (
+            <label className="route-create__wide">
+              <span>Selected Calls node ID</span>
+              <input value={nodeId} onChange={(event) => setNodeId(event.target.value)} />
+            </label>
+          ) : sourceMode === "playlist" ? (
             <label className="route-create__wide">
               <span>Broadcastify Calls playlist UUID</span>
               <input
@@ -2025,7 +2155,9 @@ function RoutesPanel({
                 !selectedDeviceId ||
                 (sourceMode === "url" ? !sourceUrl.trim() :
                   sourceMode === "saved" ? !selectedSourceId :
-                  sourceMode === "playlist" ? !playlistUuid.trim() : !callsGroups.trim())
+                  sourceMode === "playlist" ? !playlistUuid.trim() :
+                  sourceMode === "node" ? !nodeId.trim() :
+                  sourceMode === "catalog" ? true : !callsGroups.trim())
               }
               onClick={() => { void handleCreateRoute(); }}
             >
@@ -2104,6 +2236,8 @@ function RoutesPanel({
                 status
                   ?.queue;
               const processor = status?.processor ?? null;
+              const rfTx = status?.rf_tx ?? null;
+              const rfEvidence = processor?.last_rf_tx_evidence ?? null;
 
               const busy =
                 actionRouteId
@@ -2309,13 +2443,15 @@ function RoutesPanel({
                                 <select
                                   value={editSourceMode}
                                   onChange={(event) => setEditSourceMode(
-                                    event.target.value as "saved" | "url" | "playlist" | "groups"
+                                    event.target.value as "saved" | "url" | "playlist" | "groups" | "node" | "catalog"
                                   )}
                                 >
                                   <option value="saved">Saved source</option>
                                   <option value="url">New source URL</option>
                                   <option value="playlist">Calls playlist UUID</option>
                                   <option value="groups">Calls group IDs (1–5)</option>
+                                  <option value="node">Calls node ID</option>
+                                  <option value="catalog">Browse Calls catalog</option>
                                 </select>
                               </label>
                               {editSourceMode === "saved" ? (
@@ -2329,6 +2465,24 @@ function RoutesPanel({
                                       </option>
                                     ))}
                                   </select>
+                                </label>
+                              ) : editSourceMode === "catalog" ? (
+                                <div className="route-edit__wide">
+                                  <CallsCatalogPicker apiBaseUrl={apiBaseUrl} onSelect={(item) => {
+                                    setEditRouteName(item.name);
+                                    if (item.kind === "playlist") {
+                                      setEditPlaylistUuid(item.id); setEditSourceMode("playlist");
+                                    } else if (item.kind === "group") {
+                                      setEditGroups(item.id); setEditSourceMode("groups");
+                                    } else {
+                                      setEditNodeId(item.id); setEditSourceMode("node");
+                                    }
+                                  }} />
+                                </div>
+                              ) : editSourceMode === "node" ? (
+                                <label className="route-edit__wide">
+                                  <span>Calls node ID</span>
+                                  <input value={editNodeId} onChange={(event) => setEditNodeId(event.target.value)} />
                                 </label>
                               ) : editSourceMode === "playlist" ? (
                                 <label className="route-edit__wide">
@@ -2728,7 +2882,7 @@ function RoutesPanel({
                                 </div>
                                 <div>
                                   <span>Last P25 records</span>
-                                  <strong>{processor?.last_audio_bridge_result?.network_records ?? 0}</strong>
+                                  <strong>{isLiveAudio ? (liveAudio?.p25?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
                                 </div>
                               </div>
 
@@ -2752,6 +2906,48 @@ function RoutesPanel({
                             </div>
                           )}
 
+
+                          <div className="route-worker">
+                            <div className="route-worker__header">
+                              <span>RF TX MONITOR (MMDVM)</span>
+                              <strong className={"route-worker__state " +
+                                (rfTx?.modem_rf_tx_active ? "running" : "stopped")}>
+                                {rfTx?.modem_rf_tx_active ? "MODEM TX ON" :
+                                  rfTx?.runtime_active ? "MODEM IDLE" : "NO RUNTIME"}
+                              </strong>
+                            </div>
+                            <div className="route-worker__stats">
+                              <div>
+                                <span>Last network records</span>
+                                <strong>{isLiveAudio ? (liveAudio?.p25?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
+                              </div>
+                              <div>
+                                <span>Last UDP datagrams</span>
+                                <strong>{isLiveAudio ? "see P25 records" : String(processor?.last_audio_bridge_result?.sender_stats?.datagrams_sent ?? "--")}</strong>
+                              </div>
+                              <div>
+                                <span>Modem TX ON events</span>
+                                <strong>{isLiveAudio ? (liveAudio?.tx_start_count ?? "--") : (rfEvidence?.modem_tx_on_events ?? "--")}</strong>
+                              </div>
+                              <div>
+                                <span>Radiated RF evidence</span>
+                                <strong>{rfEvidence?.rf_verified
+                                  ? "RF DETECTED" : rfEvidence ? "UNVERIFIED" : "NO DATA"}</strong>
+                              </div>
+                            </div>
+                            <div className="route-worker__hint">
+                              MMDVM TX ON = modem report, not proof of antenna output.
+                              Independent RF confirmation requires an external receiver.
+                              {rfEvidence?.rf?.power_dbm != null
+                                ? ` Last RF power: ${rfEvidence.rf.power_dbm} dBm.` : ""}
+                            </div>
+                            {rfTx?.last_error && (
+                              <div className="route-worker__error">MMDVM: {rfTx.last_error}</div>
+                            )}
+                            {rfEvidence?.mmdvm_errors?.map((message, index) => (
+                              <div className="route-worker__error" key={index}>{message}</div>
+                            ))}
+                          </div>
 
                           <div className="route-worker">
                             <div className="route-worker__header">

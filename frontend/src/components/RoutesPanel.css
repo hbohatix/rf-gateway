@@ -1093,3 +1093,46 @@
       1fr;
   }
 }
+
+/* In-place Broadcastify Calls picker in Route create/edit forms. */
+.calls-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.calls-catalog__search {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(140px, 2fr) auto;
+  gap: 8px;
+}
+.calls-catalog__search select,
+.calls-catalog__search input {
+  width: 100%;
+  min-width: 0;
+}
+.calls-catalog__results {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.calls-catalog__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, .25);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, .8);
+  color: #e2e8f0;
+}
+.calls-catalog__item:hover { border-color: #34d399; }
+.calls-catalog__item small { opacity: .75; white-space: nowrap; }
+@media (max-width: 680px) {
+  .calls-catalog__search { grid-template-columns: 1fr; }
+  .calls-catalog__item { flex-direction: column; align-items: flex-start; }
+}

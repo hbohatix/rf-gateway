@@ -11,6 +11,8 @@ from app.audio_bridge import (
     get_audio_bridge_capability,
 )
 
+from app.rf.tx_observer import capture_tx_start, capture_tx_result
+
 from app.audio_decoder import (
     AudioDecoder,
     AudioDecoderError,
@@ -302,6 +304,7 @@ class CallProcessor:
             dict[str, Any]
             | None
         ) = None
+        self._last_rf_tx_evidence: dict[str, Any] | None = None
 
         self._current_call_key: (
             str
@@ -1088,6 +1091,7 @@ class CallProcessor:
             "bridging_audio"
         )
 
+        observation_start = capture_tx_start()
         try:
             result = (
                 bridge_decoded_audio(
@@ -1137,7 +1141,12 @@ class CallProcessor:
 
             return None
 
+        # TX evidence is collected after the paced network handoff.
+        # No RF-verification failure can retroactively undo a successful
+        # UDP handoff; expose that as a separate state to the operator.
+        evidence = capture_tx_result(observation_start)
         with self._lock:
+            self._last_rf_tx_evidence = evidence
             self._audio_bridge_count += 1
 
             self._last_audio_bridge_at = (
@@ -1708,6 +1717,7 @@ class CallProcessor:
                     deepcopy(
                         self._last_audio_bridge_result
                     ),
+                "last_rf_tx_evidence": deepcopy(self._last_rf_tx_evidence),
 
                 "started_at":
                     self._started_at,

@@ -231,6 +231,7 @@ class BroadcastifyWorker:
                     "playlist_uuid"
                 ),
             "group_ids": self.source.get("group_ids") or [],
+            "node_id": self.source.get("node_id"),
 
             "state":
                 "stopped",
@@ -531,10 +532,17 @@ class BroadcastifyWorker:
 
 
         groups = self.source.get("group_ids") or []
-        if bool(playlist_uuid) == bool(groups):
+        node_id = str(self.source.get("node_id") or "").strip()
+        if sum((bool(playlist_uuid), bool(groups), bool(node_id))) != 1:
             raise ValueError(
-                "Calls source requires exactly one playlist UUID or group IDs"
+                "Calls source requires one playlist, groups or node"
             )
+        if node_id:
+            from app.sources import normalize_calls_selection
+            self._node_id = normalize_calls_selection(node_id=node_id)["node_id"]
+            self._group_ids = []
+            return ""
+        self._node_id = None
         if groups:
             from app.sources import normalize_calls_selection
             normalized = normalize_calls_selection(group_ids=groups)
@@ -889,6 +897,7 @@ class BroadcastifyWorker:
                     ),
                     extra_query={
                         "pos": requested_pos,
+                        **({"nodeId": self._node_id} if self._node_id else {}),
                         # Developer API uses GET; browser-only
                         # sid=0/sessionKey/systemId fields are omitted.
                         # Playlist selectors do not support init.

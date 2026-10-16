@@ -28,6 +28,8 @@ from pydantic import (
     Field,
 )
 
+from app.calls_catalog import search_public_catalog
+
 from app.broadcastify_calls_client import (
     broadcastify_calls_client,
 )
@@ -1526,17 +1528,27 @@ def normalize_calls_selection(
     *,
     playlist_uuid: str | None = None,
     group_ids: list[str] | None = None,
+    node_id: str | None = None,
 ) -> dict:
     """Validate Calls identifiers without a website session or billable API call."""
     import re
 
     uuid_value = (playlist_uuid or "").strip()
+    node_value = (node_id or "").strip()
     groups = group_ids or []
     if isinstance(groups, str):
         groups = groups.split(",")
     groups = [str(group).strip() for group in groups if str(group).strip()]
-    if bool(uuid_value) == bool(groups):
-        raise ValueError("Provide either playlist_uuid or group_ids")
+    if sum((bool(uuid_value), bool(groups), bool(node_value))) != 1:
+        raise ValueError("Provide playlist_uuid, group_ids or node_id")
+    if node_value:
+        if not re.fullmatch(r"[0-9]{1,12}", node_value) or int(node_value) < 1:
+            raise ValueError("Invalid Calls node ID")
+        return {
+            "node_id": node_value,
+            "canonical_url": "bcfy-calls://node/" + node_value,
+            "label": "Calls node " + node_value,
+        }
     if uuid_value:
         if not re.fullmatch(r"[A-Za-z0-9-]{8,64}", uuid_value):
             raise ValueError("Invalid playlist UUID")
@@ -1566,10 +1578,11 @@ def register_calls_selection(
     playlist_uuid: str | None = None,
     group_ids: list[str] | None = None,
     name: str | None = None,
+    node_id: str | None = None,
 ) -> tuple[dict, bool]:
     """Create/reuse a Calls selector source without a public-page request."""
     selection = normalize_calls_selection(
-        playlist_uuid=playlist_uuid, group_ids=group_ids
+        playlist_uuid=playlist_uuid, group_ids=group_ids, node_id=node_id
     )
     store = load_store()
     sources = store.setdefault("sources", [])
@@ -1609,6 +1622,9 @@ def register_calls_selection(
     if "playlist_uuid" in selection:
         source["playlist_uuid"] = selection["playlist_uuid"]
         source["view"] = "playlist"
+    elif "node_id" in selection:
+        source["node_id"] = selection["node_id"]
+        source["view"] = "node"
     else:
         source["group_ids"] = selection["group_ids"]
         source["view"] = "groups"
@@ -1684,6 +1700,17 @@ def list_sources():
                 in sources
             ],
     }
+
+
+@router.get("/broadcastify/catalog")
+def public_calls_catalog(kind: str = "playlist", q: str = "", limit: int = 75):
+    """Search public playlists or a recent sample of active groups/nodes."""
+    try:
+        return search_public_catalog(kind, query=q, limit=limit)
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="Public Calls catalog unavailable") from error
 
 
 @router.get(
