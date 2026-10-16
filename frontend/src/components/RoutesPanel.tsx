@@ -119,9 +119,9 @@ type LiveAudioStatus = {
   source_id: string;
 
   source_type:
-    "broadcastify_live_audio";
+    "broadcastify_live_audio" | "direct_audio";
 
-  feed_id: number;
+  feed_id: number | null;
 
   protocol: string;
 
@@ -2069,9 +2069,8 @@ function RoutesPanel({
                 );
 
               const isLiveAudio =
-                source?.type
-                ===
-                "broadcastify_live_audio";
+                source?.type === "broadcastify_live_audio"
+                || source?.type === "direct_audio";
 
               const pipelineLabel =
                 isLiveAudio
