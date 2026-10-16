@@ -36,6 +36,10 @@ from app.audio_decoder import (
     audio_decoder,
 )
 
+from app.direct_audio_client import (
+    validate_direct_audio_url,
+)
+
 
 router = APIRouter(
     prefix="/api/sources",
@@ -119,6 +123,7 @@ TAG_PATTERN = re.compile(
 SUPPORTED_SOURCE_TYPES = {
     "broadcastify_calls",
     "broadcastify_live_audio",
+    "direct_audio",
     "auto",
 }
 
@@ -1205,6 +1210,15 @@ def apply_current_audio_api_status(
     )
 
 
+    if source_type == "direct_audio":
+        probe["audio_api_configured"] = bool(shutil.which("ffmpeg"))
+        probe["playback_state"] = (
+            "configured" if probe["audio_api_configured"]
+            else "ffmpeg_not_installed"
+        )
+        current["probe"] = probe
+        return current
+
     if (
         source_type
         ==
@@ -1454,6 +1468,61 @@ def probe_broadcastify(
     }
 
 
+def probe_direct_audio(url: str) -> dict:
+    """Validate and probe an explicitly authorized direct media endpoint."""
+    canonical_url = validate_direct_audio_url(url)
+    configured = bool(shutil.which("ffmpeg"))
+    reachable = False
+    status = None
+    error_message = None
+    final_url = canonical_url
+    media_type = None
+
+    request = urllib.request.Request(
+        canonical_url,
+        headers={"User-Agent": "RF-Gateway/0.11", "Accept": "*/*"},
+    )
+    try:
+        # Open the streaming response, but never consume an endless body.
+        with urllib.request.urlopen(request, timeout=6) as response:
+            status = response.status
+            final_url = response.geturl()
+            validate_direct_audio_url(final_url)
+            media_type = response.headers.get_content_type()
+            supported_type = (
+                media_type.startswith(("audio/", "video/"))
+                or media_type in (
+                    "application/ogg",
+                    "application/octet-stream",
+                    "application/vnd.apple.mpegurl",
+                    "application/x-mpegurl",
+                )
+            )
+            reachable = bool(status in (200, 206) and supported_type)
+            if not reachable:
+                error_message = "URL did not return a supported audio media response"
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+            ValueError, OSError) as error:
+        status = getattr(error, "code", None)
+        error_message = f"Unable to access direct audio: {type(error).__name__}"
+
+    return {
+        "provider": "direct",
+        "source_type": "direct_audio",
+        "canonical_url": canonical_url,
+        "reachable": reachable,
+        "http_status": status,
+        "page_name": None,
+        "final_url": final_url,
+        "error": error_message,
+        "media_type": media_type,
+        "audio_api_configured": configured,
+        "playback_state": "configured" if configured else "ffmpeg_not_installed",
+        "playback_model": "continuous_stream",
+        "probed_at": utc_now(),
+    }
+
+
 def get_source_or_404(
     source_id: str,
 ) -> dict:
@@ -1584,17 +1653,17 @@ def create_source(
             status_code=400,
             detail=(
                 "Supported source types are "
-                "broadcastify_calls and "
-                "broadcastify_live_audio"
+                "broadcastify_calls, "
+                "broadcastify_live_audio and direct_audio"
             ),
         )
 
 
     try:
         probe = (
-            probe_broadcastify(
-                request.url
-            )
+            probe_direct_audio(request.url)
+            if requested_type == "direct_audio"
+            else probe_broadcastify(request.url)
         )
 
 
@@ -1647,7 +1716,7 @@ def create_source(
             source_type,
 
         "provider":
-            "broadcastify",
+            probe["provider"],
 
         "url":
             probe[
@@ -1741,11 +1810,9 @@ def probe_existing_source(
 
     try:
         probe = (
-            probe_broadcastify(
-                source[
-                    "url"
-                ]
-            )
+            probe_direct_audio(source["url"])
+            if source.get("type") == "direct_audio"
+            else probe_broadcastify(source["url"])
         )
 
 
