@@ -2389,7 +2389,7 @@ function App() {
           <RoutesPanel
             apiBaseUrl={API_BASE_URL}
             onRoutesChanged={setRouteCount}
-            onSourceCreated={() => setSourceRefreshKey((value) => value + 1)}
+            onSourcesChanged={() => setSourceRefreshKey((value) => value + 1)}
           />
         </div>
 
