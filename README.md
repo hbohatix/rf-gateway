@@ -952,6 +952,15 @@ You can instead send `"source_id": "EXISTING_SOURCE_ID"` (not both) and an optio
 
 Pressing **Start** on an existing disabled route now enables and starts it in the same operation. Broadcastify Live Audio sources that require browser sign-in remain blocked; use appropriately licensed Calls API access where applicable.
 
+### Edit or delete from Routes
+
+Expand a route and choose **Edit** to change its name, RF device, protocol and source (reuse an existing source or paste a new Broadcastify URL). The backend uses `PUT /api/routes/{route_id}/setup` and preserves the route ID. Edits require the route to be stopped; **Save Changes does not start RF**. Editing a route does not modify the source of any other route.
+
+Deleting a route from the UI asks for confirmation and calls `DELETE /api/routes/{route_id}?cleanup_source=true`. If the source is still used by other routes it is preserved; otherwise the now-unused source is deleted. The old DELETE endpoint without the optional flag still removes only the route. Advanced Sources now refuses to delete a source referenced by a route (HTTP 409), preventing broken configurations.
+
+**Data safety:** sources and routes are still stored in separate files. The server performs best-effort cleanup after partial failures; this is not a cross-file database transaction. Back up `backend/data/sources.json` and `backend/data/routes.yaml` before testing changes.
+
+
 # Route API
 
 Base path:
