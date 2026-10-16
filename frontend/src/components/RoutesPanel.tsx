@@ -1602,18 +1602,12 @@ function RoutesPanel({
           );
         }
 
-        if (
-          data
-          &&
-          data.started
-          ===
-          false
-        ) {
+        if (data && data.started === false) {
+          const runtime = data.runtime as RouteRuntimeStatus | undefined;
           throw new Error(
-            getApiError(
-              data,
-              "Route did not start"
-            )
+            runtime?.error ||
+            runtime?.blocked_reason ||
+            getApiError(data, "Route did not start")
           );
         }
 
@@ -2659,8 +2653,6 @@ function RoutesPanel({
                           className="route-card__worker-start"
                           disabled={
                             busy
-                            ||
-                            !route.enabled
                           }
                           onClick={
                             () => {
