@@ -2383,29 +2383,25 @@ function App() {
         </section>
 
 
-        <SourcesPanel
-          onCountChange={
-            setSourceCount
-          }
-        />
-
-
-        <div
-          style={{
-            gridColumn:
-              "1 / -1",
-          }}
-        >
+        <div style={{ gridColumn: "1 / -1" }}>
           <RoutesPanel
-            apiBaseUrl={
-              API_BASE_URL
-            }
-
-            onRoutesChanged={
-              setRouteCount
-            }
+            apiBaseUrl={API_BASE_URL}
+            onRoutesChanged={setRouteCount}
           />
         </div>
+
+        <details style={{ gridColumn: "1 / -1" }}>
+          <summary style={{
+            cursor: "pointer",
+            color: "#94a3b8",
+            padding: "12px 16px",
+            fontSize: "12px",
+            fontWeight: 600,
+          }}>
+            Advanced: Manage and probe saved sources
+          </summary>
+          <SourcesPanel onCountChange={setSourceCount} />
+        </details>
 
 
         <section className="rf-panel">
