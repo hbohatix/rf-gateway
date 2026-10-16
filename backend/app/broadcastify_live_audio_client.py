@@ -132,6 +132,12 @@ class BroadcastifyLiveAudioStreamError(
     pass
 
 
+class BroadcastifyLiveAudioAuthenticationError(
+    BroadcastifyLiveAudioError
+):
+    pass
+
+
 @dataclass(
     frozen=True,
 )
@@ -805,13 +811,22 @@ class BroadcastifyLiveAudioClient:
 
 
         if not hls_url:
-            raise (
-                BroadcastifyLiveAudioError(
-                    (
-                        "Broadcastify feed page "
-                        "does not contain hlsUrl"
-                    )
+            lower_page = page.lower()
+
+            if (
+                "sign in" in lower_page
+                and "create account" in lower_page
+            ):
+                raise BroadcastifyLiveAudioAuthenticationError(
+                    "Broadcastify Live Audio requires sign-in: "
+                    "the unauthenticated feed page does not "
+                    "provide the HLS player URL. Use an "
+                    "authorized audio source."
                 )
+
+            raise BroadcastifyLiveAudioError(
+                "Broadcastify feed page does not contain "
+                "hlsUrl (sign-in required or player format changed)"
             )
 
 
