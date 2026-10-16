@@ -901,7 +901,7 @@ Since October 2026, Broadcastify requires sign-in to listen to web feeds. A feed
 
 For a `broadcastify_live_audio` route, `POST /api/routes/{route_id}/preflight` now tries to resolve the listening session. If no HLS session can be resolved, it reports `state: blocked`, `source_ready: false`, `blocked_reason: source_stream_unavailable`, and an explanatory `error` instead of indicating `SOURCE READY`. This validates session metadata, not continuous audio delivery.
 
-A free Broadcastify login is not automatically an approved programmatic audio API. If direct integration is needed, use an access method explicitly provided/approved by Broadcastify; their static audio URL requires Premium, and the audio feed catalog API requires a license. Listening access alone does not authorize retransmitting a feed over RF. The current RF Gateway HLS client does not implement an authenticated Broadcastify login or the Premium static audio transport.
+Broadcastify Terms (updated July 22, 2026, Section 9) require a separate commercial/developer license for programmatic listening (including FFmpeg), polling, and rebroadcasting, even for Premium accounts. A free or Premium account is only a license for personal listening through Broadcastify applications. See https://www.broadcastify.com/terms/ and https://bcfy.io. RF Gateway deliberately does not automate Broadcastify login, cookies, or signed HLS tokens.
 
 Run the no-network regression tests:
 
@@ -911,6 +911,31 @@ source .venv/bin/activate
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
+
+## Direct Audio source (authorized streams only)
+
+RF Gateway supports continuous HTTP/HTTPS audio sources of type `direct_audio` when you **own the stream** or have the provider's permission to consume it programmatically and rebroadcast it over RF. This is independent of Broadcastify; its ordinary website feed URLs are not supported.
+
+Source configuration via **Sources → Add Source → Direct HTTP Audio (authorized)**, or the API:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/sources \\
+  -H 'Content-Type: application/json' \\
+  -d '{"name":"My SDR audio","type":"direct_audio","url":"http://192.168.1.50:8000/live.mp3"}' | jq
+```
+
+Direct source probing: `POST /api/sources/direct-audio/probe` with JSON `{"url":"http://.../live.mp3"}`. The HTTP endpoint must expose actual media (`audio/*`, `video/*`, Ogg or HLS playlist MIME types). Feed overview pages, local files, and passwords embedded in URLs are not supported.
+
+The continuous FFmpeg process decodes its input to **8 kHz / mono / signed 16-bit PCM** (320 bytes per 20 ms), which is fed through the existing activity gate and P25 encoder. The input is automatically reconnected after loss. The live route preflight checks reachability and FFmpeg availability, but successful preflight does not prove the feed codec is decodable or that an RF transmission has occurred.
+
+To verify without starting RF, first run the preflight and inspect `runtime.source_ready`. Verify `pcm_chunks_received` only after starting a properly authorized P25 route. A source can be reachable yet silent.
+
+Running the test suite:
+
+```bash
+cd backend && source .venv/bin/activate
+python -m unittest discover -s tests -p 'test_*.py'
+```
 
 ### `POST /api/sources/broadcastify/probe`
 
