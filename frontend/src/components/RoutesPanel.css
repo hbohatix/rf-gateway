@@ -261,7 +261,8 @@
 }
 
 
-.route-create select {
+.route-create select,
+.route-create input:not([type="checkbox"]) {
   width: 100%;
   height: 36px;
 
@@ -307,7 +308,8 @@
 }
 
 
-.route-create select:focus {
+.route-create select:focus,
+.route-create input:not([type="checkbox"]):focus {
   border-color:
     rgba(96, 165, 250, 0.55);
 
@@ -324,6 +326,37 @@
   background: #111827;
 
   color: #dbe5f1;
+}
+
+
+.route-create__wide {
+  grid-column: span 2;
+}
+
+.route-create__wide small {
+  font-size: 11px;
+  color: #8aa0b8;
+  line-height: 1.4;
+}
+
+.route-create label.route-create__start {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.route-create__start input {
+  width: 16px;
+  height: 16px;
+  accent-color: #22c55e;
+}
+
+.route-create label.route-create__start > span {
+  color: #d9e3ef;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
 
@@ -916,6 +949,10 @@
   .route-create {
     grid-template-columns:
       1fr;
+  }
+
+  .route-create__wide {
+    grid-column: span 1;
   }
 
 
