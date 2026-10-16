@@ -179,6 +179,21 @@ type LiveAudioStatus = {
 };
 
 
+type CallsProcessorStatus = {
+  state?: string;
+  running?: boolean;
+  error?: string | null;
+  audio_download_count?: number;
+  audio_decode_count?: number;
+  audio_bridge_count?: number;
+  calls_completed?: number;
+  current_call_error_stage?: string | null;
+  last_audio_bridge_result?: {
+    network_records?: number;
+    sender_stats?: Record<string, unknown>;
+  } | null;
+};
+
 type RouteStatusResponse = {
   runtime:
     RouteRuntimeStatus
@@ -193,7 +208,7 @@ type RouteStatusResponse = {
     | null;
 
   processor?:
-    unknown;
+    CallsProcessorStatus | null;
 
   queue?:
     RouteQueueStats;
@@ -214,7 +229,7 @@ type RoutePreflightApiResponse = {
     | null;
 
   processor?:
-    unknown;
+    CallsProcessorStatus | null;
 
   queue:
     RouteQueueStats;
@@ -2037,6 +2052,7 @@ function RoutesPanel({
               const queue =
                 status
                   ?.queue;
+              const processor = status?.processor ?? null;
 
               const busy =
                 actionRouteId
@@ -2621,6 +2637,56 @@ function RoutesPanel({
                                 </div>
                               </div>
 
+
+                              <div className="route-worker__stats">
+                                <div>
+                                  <span>Completed</span>
+                                  <strong>{processor?.calls_completed ?? 0}</strong>
+                                </div>
+                                <div>
+                                  <span>Dequeued</span>
+                                  <strong>{queue?.total_dequeued ?? 0}</strong>
+                                </div>
+                                <div>
+                                  <span>Dropped</span>
+                                  <strong>{queue?.total_dropped ?? 0}</strong>
+                                </div>
+                                <div>
+                                  <span>Cleared</span>
+                                  <strong>{queue?.total_cleared ?? 0}</strong>
+                                </div>
+                              </div>
+
+                              <div className="route-worker__stats">
+                                <div>
+                                  <span>Audio downloads</span>
+                                  <strong>{processor?.audio_download_count ?? 0}</strong>
+                                </div>
+                                <div>
+                                  <span>PCM decoded</span>
+                                  <strong>{processor?.audio_decode_count ?? 0}</strong>
+                                </div>
+                                <div>
+                                  <span>P25 handoffs</span>
+                                  <strong>{processor?.audio_bridge_count ?? 0}</strong>
+                                </div>
+                                <div>
+                                  <span>Last P25 records</span>
+                                  <strong>{processor?.last_audio_bridge_result?.network_records ?? 0}</strong>
+                                </div>
+                              </div>
+
+                              <div className="route-worker__hint">
+                                P25 handoff = sent toward MMDVM; RF transmission is not confirmed.
+                              </div>
+
+                              {processor?.error && (
+                                <div className="route-worker__error">
+                                  Processor{processor.current_call_error_stage
+                                    ? ` (${processor.current_call_error_stage})`
+                                    : ""}: {processor.error}
+                                </div>
+                              )}
 
                               {worker?.error && (
                                 <div className="route-worker__error">
