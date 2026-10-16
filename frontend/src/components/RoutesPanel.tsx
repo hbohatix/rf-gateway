@@ -2919,7 +2919,7 @@ function RoutesPanel({
                             <div className="route-worker__stats">
                               <div>
                                 <span>Last network records</span>
-                                <strong>{processor?.last_audio_bridge_result?.network_records ?? 0}</strong>
+                                <strong>{isLiveAudio ? (liveAudio?.p25?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
                               </div>
                               <div>
                                 <span>Last UDP datagrams</span>
