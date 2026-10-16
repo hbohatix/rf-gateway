@@ -1876,6 +1876,21 @@ def probe_existing_source(
 def delete_source(
     source_id: str,
 ):
+    # Do not strand Routes pointing at a deleted Source.
+    from app.routes import load_store as load_routes_store
+
+    used_by = [
+        item.get("id")
+        for item in load_routes_store().get("routes", [])
+        if item.get("source_id") == source_id
+    ]
+    if used_by:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Source is used by {len(used_by)} route(s)",
+        )
+
+
     store = (
         load_store()
     )
