@@ -39,6 +39,8 @@ def _latest_sensor_evidence(since: float, frequency_hz: int | None) -> dict[str,
     configured = (os.getenv("RF_TX_EVIDENCE_FILE") or "").strip()
     if not configured:
         return {"state": "not_configured", "verified": False}
+    if frequency_hz is None:
+        return {"state": "unknown_frequency", "verified": False}
     try:
         path = Path(configured)
         if path.stat().st_size > 16384:
