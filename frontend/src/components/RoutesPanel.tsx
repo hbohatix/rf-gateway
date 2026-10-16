@@ -834,7 +834,9 @@ function RoutesPanel({
     );
 
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
-  const [editSourceMode, setEditSourceMode] = useState<"saved" | "url">("saved");
+  const [editSourceMode, setEditSourceMode] = useState<"saved" | "url" | "playlist" | "groups">("saved");
+  const [editPlaylistUuid, setEditPlaylistUuid] = useState("");
+  const [editGroups, setEditGroups] = useState("");
   const [editSourceId, setEditSourceId] = useState("");
   const [editSourceUrl, setEditSourceUrl] = useState("");
   const [editSourceKind, setEditSourceKind] = useState<"auto" | "direct_audio">("auto");
@@ -842,7 +844,9 @@ function RoutesPanel({
   const [editDeviceId, setEditDeviceId] = useState("");
   const [editProtocol, setEditProtocol] = useState<Protocol>("p25");
 
-  const [sourceMode, setSourceMode] = useState<"url" | "saved">("url");
+  const [sourceMode, setSourceMode] = useState<"url" | "saved" | "playlist" | "groups">("playlist");
+  const [playlistUuid, setPlaylistUuid] = useState("");
+  const [callsGroups, setCallsGroups] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceKind, setSourceKind] = useState<"auto" | "direct_audio">("auto");
   const [routeName, setRouteName] = useState("");
@@ -1355,6 +1359,14 @@ function RoutesPanel({
 
 
   const handleCreateRoute = async () => {
+    if (sourceMode === "playlist" && !playlistUuid.trim()) {
+      setError("Enter a Calls playlist UUID");
+      return;
+    }
+    if (sourceMode === "groups" && !callsGroups.trim()) {
+      setError("Enter one or more Calls group IDs");
+      return;
+    }
     if (sourceMode === "url" && !sourceUrl.trim()) {
       setError("Enter a Broadcastify Calls playlist or Live Audio feed URL");
       return;
@@ -1381,6 +1393,8 @@ function RoutesPanel({
             source_id: sourceMode === "saved" ? selectedSourceId : null,
             source_url: sourceMode === "url" ? sourceUrl.trim() : null,
             source_type: sourceMode === "url" ? sourceKind : "auto",
+            playlist_uuid: sourceMode === "playlist" ? playlistUuid.trim() : null,
+            group_ids: sourceMode === "groups" ? callsGroups.split(",").map((s) => s.trim()).filter(Boolean) : null,
             device_id: selectedDeviceId,
             protocol: selectedProtocol,
             start_now: startNow,
@@ -1397,6 +1411,8 @@ function RoutesPanel({
       setCreateOpen(false);
       setSourceUrl("");
       setSourceKind("auto");
+      setPlaylistUuid("");
+      setCallsGroups("");
       setRouteName("");
       setStartNow(false);
       await refreshAll();
@@ -1510,6 +1526,8 @@ function RoutesPanel({
     setEditSourceId(route.source_id);
     setEditSourceUrl("");
     setEditSourceKind("auto");
+    setEditPlaylistUuid("");
+    setEditGroups("");
     setEditDeviceId(route.device_id);
     setEditProtocol(route.protocol);
     setExpandedRoutes((current) => ({ ...current, [route.id]: true }));
@@ -1521,7 +1539,10 @@ function RoutesPanel({
       setError("Enter a route name and RF device");
       return;
     }
-    if (editSourceMode === "saved" ? !editSourceId : !editSourceUrl.trim()) {
+    if ((editSourceMode === "saved" && !editSourceId) ||
+        (editSourceMode === "url" && !editSourceUrl.trim()) ||
+        (editSourceMode === "playlist" && !editPlaylistUuid.trim()) ||
+        (editSourceMode === "groups" && !editGroups.trim())) {
       setError("Select a source or provide its URL");
       return;
     }
@@ -1539,6 +1560,8 @@ function RoutesPanel({
             source_id: editSourceMode === "saved" ? editSourceId : null,
             source_url: editSourceMode === "url" ? editSourceUrl.trim() : null,
             source_type: editSourceMode === "url" ? editSourceKind : "auto",
+            playlist_uuid: editSourceMode === "playlist" ? editPlaylistUuid.trim() : null,
+            group_ids: editSourceMode === "groups" ? editGroups.split(",").map((s) => s.trim()).filter(Boolean) : null,
             device_id: editDeviceId,
             protocol: editProtocol,
             start_now: false,
@@ -1875,35 +1898,42 @@ function RoutesPanel({
       {createOpen && (
         <div className="route-create">
           <label>
-            <span>Source</span>
+            <span>Calls source</span>
             <select
               value={sourceMode}
-              onChange={(event) => setSourceMode(event.target.value as "url" | "saved")}
+              onChange={(event) => setSourceMode(event.target.value as
+                "playlist" | "groups" | "saved" | "url")}
             >
-              <option value="url">Add from URL (one step)</option>
-              <option value="saved">Use saved source</option>
+              <option value="playlist">Calls playlist UUID</option>
+              <option value="groups">Calls group IDs (1–5)</option>
+              <option value="saved">Existing saved source</option>
+              <option value="url">Advanced: Source URL</option>
             </select>
           </label>
 
-          {sourceMode === "url" ? (
+          {sourceMode === "playlist" ? (
             <label className="route-create__wide">
-              <span>{sourceKind === "direct_audio" ? "Direct audio URL" : "Broadcastify source URL"}</span>
-              <select
-                value={sourceKind}
-                onChange={(event) => setSourceKind(event.target.value as "auto" | "direct_audio")}
-              >
-                <option value="auto">Broadcastify (detect Calls / Live)</option>
-                <option value="direct_audio">Direct HTTP audio (authorized)</option>
-              </select>
+              <span>Broadcastify Calls playlist UUID</span>
               <input
-                type="url"
-                value={sourceUrl}
-                onChange={(event) => setSourceUrl(event.target.value)}
-                placeholder={sourceKind === "direct_audio" ? "http://192.168.1.50:8000/live.mp3" : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
+                type="text"
+                value={playlistUuid}
+                onChange={(event) => setPlaylistUuid(event.target.value)}
+                placeholder="Paste UUID, without the playlist URL"
               />
-              <small>Existing sources are reused automatically. Use approved Broadcastify Calls API or an authorized direct media source.</small>
+              <small>Uses the existing JWT Calls API. No website login or separate Source setup.</small>
             </label>
-          ) : (
+          ) : sourceMode === "groups" ? (
+            <label className="route-create__wide">
+              <span>Broadcastify Calls group IDs (comma-separated)</span>
+              <input
+                type="text"
+                value={callsGroups}
+                onChange={(event) => setCallsGroups(event.target.value)}
+                placeholder="2-3416, 2-3417, c-223312"
+              />
+              <small>One to five groups; formats SID-TG or c-FID. These are Broadcastify IDs, not DMR TG numbers.</small>
+            </label>
+          ) : sourceMode === "saved" ? (
             <label className="route-create__wide">
               <span>Saved source</span>
               <select
@@ -1916,6 +1946,25 @@ function RoutesPanel({
                   </option>
                 ))}
               </select>
+            </label>
+          ) : (
+            <label className="route-create__wide">
+              <span>Source URL</span>
+              <select
+                value={sourceKind}
+                onChange={(event) => setSourceKind(event.target.value as "auto" | "direct_audio")}
+              >
+                <option value="auto">Broadcastify Calls / Live (detect)</option>
+                <option value="direct_audio">Direct HTTP audio (authorized)</option>
+              </select>
+              <input
+                type="url"
+                value={sourceUrl}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder={sourceKind === "direct_audio"
+                  ? "http://192.168.1.50:8000/live.mp3"
+                  : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
+              />
             </label>
           )}
 
@@ -1974,7 +2023,9 @@ function RoutesPanel({
               disabled={
                 createBusy ||
                 !selectedDeviceId ||
-                (sourceMode === "url" ? !sourceUrl.trim() : !selectedSourceId)
+                (sourceMode === "url" ? !sourceUrl.trim() :
+                  sourceMode === "saved" ? !selectedSourceId :
+                  sourceMode === "playlist" ? !playlistUuid.trim() : !callsGroups.trim())
               }
               onClick={() => { void handleCreateRoute(); }}
             >
@@ -2258,20 +2309,20 @@ function RoutesPanel({
                                 <select
                                   value={editSourceMode}
                                   onChange={(event) => setEditSourceMode(
-                                    event.target.value as "saved" | "url"
+                                    event.target.value as "saved" | "url" | "playlist" | "groups"
                                   )}
                                 >
                                   <option value="saved">Saved source</option>
                                   <option value="url">New source URL</option>
+                                  <option value="playlist">Calls playlist UUID</option>
+                                  <option value="groups">Calls group IDs (1–5)</option>
                                 </select>
                               </label>
                               {editSourceMode === "saved" ? (
                                 <label className="route-edit__wide">
-                                  <span>Source</span>
-                                  <select
-                                    value={editSourceId}
-                                    onChange={(event) => setEditSourceId(event.target.value)}
-                                  >
+                                  <span>Saved source</span>
+                                  <select value={editSourceId}
+                                    onChange={(event) => setEditSourceId(event.target.value)}>
                                     {sources.map((item) => (
                                       <option key={item.id} value={item.id}>
                                         {getSourceDisplayName(item)}
@@ -2279,23 +2330,33 @@ function RoutesPanel({
                                     ))}
                                   </select>
                                 </label>
+                              ) : editSourceMode === "playlist" ? (
+                                <label className="route-edit__wide">
+                                  <span>Calls playlist UUID</span>
+                                  <input type="text" value={editPlaylistUuid}
+                                    placeholder="Playlist UUID"
+                                    onChange={(event) => setEditPlaylistUuid(event.target.value)} />
+                                </label>
+                              ) : editSourceMode === "groups" ? (
+                                <label className="route-edit__wide">
+                                  <span>Calls group IDs (1–5)</span>
+                                  <input type="text" value={editGroups}
+                                    placeholder="2-3416, c-223312"
+                                    onChange={(event) => setEditGroups(event.target.value)} />
+                                </label>
                               ) : (
                                 <label className="route-edit__wide">
                                   <span>Source URL</span>
-                                  <select
-                                    value={editSourceKind}
-                                    onChange={(event) => setEditSourceKind(event.target.value as "auto" | "direct_audio")}
-                                  >
-                                    <option value="auto">Broadcastify (detect Calls / Live)</option>
-                                    <option value="direct_audio">Direct HTTP audio (authorized)</option>
+                                  <select value={editSourceKind}
+                                    onChange={(event) => setEditSourceKind(event.target.value as "auto" | "direct_audio")}>
+                                    <option value="auto">Broadcastify (detect)</option>
+                                    <option value="direct_audio">Direct HTTP audio</option>
                                   </select>
-                                  <input
-                                    type="url"
-                                    value={editSourceUrl}
-                                    placeholder={editSourceKind === "direct_audio" ? "http://192.168.1.50:8000/live.mp3" : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
-                                    onChange={(event) => setEditSourceUrl(event.target.value)}
-                                  />
-                                  <small>Shared sources are reused. Other routes are not modified.</small>
+                                  <input type="url" value={editSourceUrl}
+                                    placeholder={editSourceKind === "direct_audio"
+                                      ? "http://192.168.1.50:8000/live.mp3"
+                                      : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
+                                    onChange={(event) => setEditSourceUrl(event.target.value)} />
                                 </label>
                               )}
                               <label>

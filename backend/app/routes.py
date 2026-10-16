@@ -61,6 +61,7 @@ from app.sources import (
     load_store as load_sources_store,
     parse_broadcastify_source_url,
     SourceCreateRequest,
+    register_calls_selection,
 )
 from app.direct_audio_client import validate_direct_audio_url
 
@@ -142,6 +143,8 @@ class RouteSetupRequest(BaseModel):
     source_type: Literal[
         "auto", "broadcastify_calls", "broadcastify_live_audio", "direct_audio"
     ] = "auto"
+    playlist_uuid: str | None = None
+    group_ids: list[str] | None = None
     start_now: bool = False
 
 
@@ -1102,14 +1105,30 @@ def resolve_setup_source(request: RouteSetupRequest) -> tuple[dict, bool]:
     """Reuse an existing source or register exactly one new source."""
     existing_id = (request.source_id or "").strip()
     source_url = (request.source_url or "").strip()
-    if bool(existing_id) == bool(source_url):
+    selectors = [
+        bool(existing_id),
+        bool(source_url),
+        bool((request.playlist_uuid or "").strip()),
+        bool(request.group_ids),
+    ]
+    if sum(selectors) != 1:
         raise HTTPException(
             status_code=400,
-            detail="Provide either source_id or source_url, not both",
+            detail="Provide exactly one: source_id, source_url, playlist_uuid or group_ids",
         )
 
     if existing_id:
         return get_source_or_404(existing_id), False
+
+    if request.playlist_uuid or request.group_ids:
+        try:
+            return register_calls_selection(
+                playlist_uuid=request.playlist_uuid,
+                group_ids=request.group_ids,
+                name=request.name,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     if request.source_type == "direct_audio":
         try:

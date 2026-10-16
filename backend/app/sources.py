@@ -1522,6 +1522,101 @@ def probe_direct_audio(url: str) -> dict:
     }
 
 
+def normalize_calls_selection(
+    *,
+    playlist_uuid: str | None = None,
+    group_ids: list[str] | None = None,
+) -> dict:
+    """Validate Calls identifiers without a website session or billable API call."""
+    import re
+
+    uuid_value = (playlist_uuid or "").strip()
+    groups = group_ids or []
+    if isinstance(groups, str):
+        groups = groups.split(",")
+    groups = [str(group).strip() for group in groups if str(group).strip()]
+    if bool(uuid_value) == bool(groups):
+        raise ValueError("Provide either playlist_uuid or group_ids")
+    if uuid_value:
+        if not re.fullmatch(r"[A-Za-z0-9-]{8,64}", uuid_value):
+            raise ValueError("Invalid playlist UUID")
+        return {
+            "playlist_uuid": uuid_value,
+            "canonical_url": (
+                "https://www.broadcastify.com/calls/playlists/?uuid="
+                + uuid_value
+            ),
+            "label": "Calls playlist " + uuid_value[:8],
+        }
+    if len(groups) > 5 or len(set(groups)) != len(groups):
+        raise ValueError("Choose 1–5 distinct Calls group IDs")
+    if any(not re.fullmatch(r"(?:[0-9]+-[0-9]+|c-[0-9]+)", group)
+           for group in groups):
+        raise ValueError("Group ID must be SID-TG (e.g. 2-3416) or c-FID")
+    ordered = sorted(groups)
+    return {
+        "group_ids": ordered,
+        "canonical_url": "bcfy-calls://groups/" + ",".join(ordered),
+        "label": "Calls groups: " + ", ".join(ordered),
+    }
+
+
+def register_calls_selection(
+    *,
+    playlist_uuid: str | None = None,
+    group_ids: list[str] | None = None,
+    name: str | None = None,
+) -> tuple[dict, bool]:
+    """Create/reuse a Calls selector source without a public-page request."""
+    selection = normalize_calls_selection(
+        playlist_uuid=playlist_uuid, group_ids=group_ids
+    )
+    store = load_store()
+    sources = store.setdefault("sources", [])
+    for current in sources:
+        if (current.get("type") == "broadcastify_calls"
+                and current.get("url") == selection["canonical_url"]):
+            return apply_current_audio_api_status(current), False
+
+    status = get_audio_api_status()
+    configured = bool(status.get("live_playback_configured", False))
+    now = utc_now()
+    probe = {
+        "provider": "broadcastify",
+        "source_type": "broadcastify_calls",
+        "canonical_url": selection["canonical_url"],
+        # Syntax is valid; actual permission/coverage is checked on polling.
+        "reachable": True,
+        "remote_verified": False,
+        "http_status": None,
+        "page_name": name or selection["label"],
+        "audio_api_configured": configured,
+        "playback_state": "configured" if configured else "api_not_configured",
+        "playback_model": "discrete_calls",
+        "probed_at": now,
+    }
+    source = {
+        "id": str(uuid.uuid4()),
+        "name": (name or selection["label"]).strip(),
+        "type": "broadcastify_calls",
+        "provider": "broadcastify",
+        "url": selection["canonical_url"],
+        "created_at": now,
+        "updated_at": now,
+        "probe": probe,
+        "managed_selection": True,
+    }
+    if "playlist_uuid" in selection:
+        source["playlist_uuid"] = selection["playlist_uuid"]
+        source["view"] = "playlist"
+    else:
+        source["group_ids"] = selection["group_ids"]
+        source["view"] = "groups"
+    sources.append(source)
+    save_store(store)
+    return source, True
+
+
 def get_source_or_404(
     source_id: str,
 ) -> dict:
@@ -1814,6 +1909,14 @@ def probe_existing_source(
         )
     )
 
+
+    if source.get("managed_selection"):
+        current = apply_current_audio_api_status(source)
+        return {
+            **current,
+            "probe": current["probe"],
+            "remote_verified": False,
+        }
 
     try:
         probe = (

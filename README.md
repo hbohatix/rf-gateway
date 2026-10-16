@@ -1546,3 +1546,18 @@ curl -s \
 ### Calls processing counters
 
 The Routes panel distinguishes **Received / Enqueued / Duplicates** from **Completed / Dequeued / Dropped / Cleared**. Clearing the queue (for example on route stop) no longer makes calls silently disappear from accounting; `total_cleared` tracks removals from that point onward, not historical removals before this version. During a call, the *last P25 records* field reports the latest successful P25 **network handoff** to MMDVM, not proof of transmission on an RF antenna. Actual on-air TX should be checked at MMDVM/radio.
+
+## Calls selectors directly in Routes
+
+The **Routes → Add Route** form can now create/reuse a Calls source directly from:
+
+- An existing saved source (including previously imported Calls playlists).
+- A Calls playlist UUID (no Broadcastify webpage lookup).
+- One to five Broadcastify Calls group identifiers, e.g. `2-3416,c-223312`.
+- An advanced full source URL (legacy Calls, Live Audio, or authorized direct HTTP media).
+
+`POST /api/routes/setup` and `PUT /api/routes/{id}/setup` accept exactly **one** of `source_id`, `source_url`, `playlist_uuid`, or `group_ids`. For group selection use an array of group strings: `"group_ids": ["2-3416", "c-223312"]`. The `broadcastify_calls` worker uses its existing JWT-authenticated `GET /calls/v1/live/` transport with the documented `groups` selector and `pos` cursor. Duplicate selections reuse the same persisted source.
+
+A syntactically valid Calls selector can be saved **without any external request**. The new sources carry `remote_verified: false` because actual playlist/group visibility is confirmed only by a subsequent live API poll, which may be billed. Saving a route does not start the RF transmitter unless `start_now` is explicitly selected.
+
+This does not yet provide a remote, searchable Broadcastify Calls catalog: the exact authenticated discovery endpoint schemas must be confirmed against the user's Developer Portal documentation before implementing listing by county/system. No undocumented API endpoints are invented here.
