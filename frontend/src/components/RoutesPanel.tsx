@@ -810,6 +810,11 @@ function RoutesPanel({
       false
     );
 
+  const [sourceMode, setSourceMode] = useState<"url" | "saved">("url");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [routeName, setRouteName] = useState("");
+  const [startNow, setStartNow] = useState(false);
+
   const [
     selectedSourceId,
     setSelectedSourceId,
@@ -1316,139 +1321,73 @@ function RoutesPanel({
   );
 
 
-  const handleCreateRoute =
-    async () => {
-      if (
-        !selectedSourceId
-      ) {
-        setError(
-          "Select a source"
-        );
+  const handleCreateRoute = async () => {
+    if (sourceMode === "url" && !sourceUrl.trim()) {
+      setError("Enter a Broadcastify Calls playlist or Live Audio feed URL");
+      return;
+    }
+    if (sourceMode === "saved" && !selectedSourceId) {
+      setError("Select an existing source");
+      return;
+    }
+    if (!selectedDeviceId) {
+      setError("Select an RF device");
+      return;
+    }
 
-        return;
-      }
-
-      if (
-        !selectedDeviceId
-      ) {
-        setError(
-          "Select an RF device"
-        );
-
-        return;
-      }
-
-      const source =
-        sources.find(
-          (
-            item
-          ) =>
-            item.id
-            ===
-            selectedSourceId
-        );
-
-      if (
-        !source
-      ) {
-        setError(
-          "Selected source was not found"
-        );
-
-        return;
-      }
-
-      setCreateBusy(
-        true
+    setCreateBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/routes/setup`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: routeName.trim() || null,
+            source_id: sourceMode === "saved" ? selectedSourceId : null,
+            source_url: sourceMode === "url" ? sourceUrl.trim() : null,
+            device_id: selectedDeviceId,
+            protocol: selectedProtocol,
+            start_now: startNow,
+          }),
+        }
       );
+      const data = await readApiObject(response);
+      if (!response.ok) {
+        throw new Error(
+          getApiError(data, `Create route HTTP ${response.status}`)
+        );
+      }
 
-      setError(
-        null
-      );
+      setCreateOpen(false);
+      setSourceUrl("");
+      setRouteName("");
+      setStartNow(false);
+      await refreshAll();
 
-      try {
-        const response =
-          await fetch(
-            `${apiBaseUrl}/api/routes`,
-            {
-              method:
-                "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body:
-                JSON.stringify({
-                  name:
-                    getSourceDisplayName(
-                      source
-                    ),
-
-                  source_id:
-                    selectedSourceId,
-
-                  device_id:
-                    selectedDeviceId,
-
-                  protocol:
-                    selectedProtocol,
-
-                  enabled:
-                    true,
-                }),
-            }
-          );
-
-        if (
-          !response.ok
-        ) {
-          const data =
-            await readApiObject(
-              response
-            );
-
-          throw new Error(
-            getApiError(
-              data,
-              (
-                `Create route HTTP ` +
-                `${response.status}`
-              )
-            )
+      if (startNow && data?.start) {
+        const startStatus = data.start as {
+          started?: boolean;
+          message?: string;
+          runtime?: RouteRuntimeStatus;
+        };
+        if (startStatus.started === false) {
+          setError(
+            "Route saved, but not started: " +
+            (startStatus.runtime?.error ||
+              startStatus.runtime?.blocked_reason ||
+              startStatus.message ||
+              "preflight failed")
           );
         }
-
-        setCreateOpen(
-          false
-        );
-
-        await refreshAll();
-
-      } catch (
-        caught
-      ) {
-        if (
-          caught instanceof
-          Error
-        ) {
-          setError(
-            caught.message
-          );
-
-        } else {
-          setError(
-            "Unable to create route"
-          );
-        }
-
-      } finally {
-        setCreateBusy(
-          false
-        );
       }
-    };
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create route");
+    } finally {
+      setCreateBusy(false);
+    }
+  };
 
 
   const handleToggleEnabled =
@@ -1802,7 +1741,7 @@ function RoutesPanel({
           </h2>
 
           <p>
-            Internet sources routed to RF devices
+            Configure source, RF device and protocol in one place
           </p>
         </div>
 
@@ -1831,152 +1770,103 @@ function RoutesPanel({
       {createOpen && (
         <div className="route-create">
           <label>
-            <span>
-              Source
-            </span>
-
+            <span>Source</span>
             <select
-              value={
-                selectedSourceId
-              }
-              onChange={
-                (
-                  event
-                ) =>
-                  setSelectedSourceId(
-                    event.target.value
-                  )
-              }
+              value={sourceMode}
+              onChange={(event) => setSourceMode(event.target.value as "url" | "saved")}
             >
-              {sources.map(
-                (
-                  source
-                ) => (
-                  <option
-                    key={
-                      source.id
-                    }
-                    value={
-                      source.id
-                    }
-                  >
-                    {
-                      getSourceDisplayName(
-                        source
-                      )
-                    }
-                  </option>
-                )
-              )}
+              <option value="url">Add from URL (one step)</option>
+              <option value="saved">Use saved source</option>
             </select>
           </label>
 
+          {sourceMode === "url" ? (
+            <label className="route-create__wide">
+              <span>Broadcastify source URL</span>
+              <input
+                type="url"
+                value={sourceUrl}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder="https://www.broadcastify.com/calls/playlists/?uuid=..."
+              />
+              <small>Calls playlist or Live Audio feed. Existing sources are reused automatically.</small>
+            </label>
+          ) : (
+            <label className="route-create__wide">
+              <span>Saved source</span>
+              <select
+                value={selectedSourceId}
+                onChange={(event) => setSelectedSourceId(event.target.value)}
+              >
+                {sources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {getSourceDisplayName(source)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label>
-            <span>
-              RF Device
-            </span>
-
-            <select
-              value={
-                selectedDeviceId
-              }
-              onChange={
-                (
-                  event
-                ) =>
-                  setSelectedDeviceId(
-                    event.target.value
-                  )
-              }
-            >
-              {devices.map(
-                (
-                  device
-                ) => (
-                  <option
-                    key={
-                      device.id
-                    }
-                    value={
-                      device.id
-                    }
-                  >
-                    {
-                      getDeviceDisplayName(
-                        device
-                      )
-                    }
-                    {" · "}
-                    {device.id}
-                  </option>
-                )
-              )}
-            </select>
+            <span>Route name (optional)</span>
+            <input
+              type="text"
+              maxLength={120}
+              value={routeName}
+              onChange={(event) => setRouteName(event.target.value)}
+              placeholder="Auto from source"
+            />
           </label>
-
 
           <label>
-            <span>
-              Protocol
-            </span>
-
+            <span>RF Device</span>
             <select
-              value={
-                selectedProtocol
-              }
-              onChange={
-                (
-                  event
-                ) =>
-                  setSelectedProtocol(
-                    event.target.value as Protocol
-                  )
-              }
+              value={selectedDeviceId}
+              onChange={(event) => setSelectedDeviceId(event.target.value)}
             >
-              {PROTOCOLS.map(
-                (
-                  protocol
-                ) => (
-                  <option
-                    key={
-                      protocol
-                    }
-                    value={
-                      protocol
-                    }
-                  >
-                    {
-                      protocol
-                        .toUpperCase()
-                    }
-                  </option>
-                )
-              )}
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {getDeviceDisplayName(device)} · {device.id}
+                </option>
+              ))}
             </select>
           </label>
 
+          <label>
+            <span>Protocol</span>
+            <select
+              value={selectedProtocol}
+              onChange={(event) => setSelectedProtocol(event.target.value as Protocol)}
+            >
+              {PROTOCOLS.map((protocol) => (
+                <option key={protocol} value={protocol}>
+                  {protocol.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="route-create__start">
+            <input
+              type="checkbox"
+              checked={startNow}
+              onChange={(event) => setStartNow(event.target.checked)}
+            />
+            <span>Start immediately (may transmit RF if audio is available)</span>
+          </label>
 
           <div className="route-create__actions">
             <button
               type="button"
               className="route-create__submit"
               disabled={
-                createBusy
-                ||
-                !selectedSourceId
-                ||
-                !selectedDeviceId
+                createBusy ||
+                !selectedDeviceId ||
+                (sourceMode === "url" ? !sourceUrl.trim() : !selectedSourceId)
               }
-              onClick={
-                () => {
-                  void handleCreateRoute();
-                }
-              }
+              onClick={() => { void handleCreateRoute(); }}
             >
-              {createBusy
-                ? "CREATING..."
-                : "CREATE ROUTE"}
+              {createBusy ? "SAVING..." : startNow ? "CREATE & START" : "CREATE ROUTE"}
             </button>
           </div>
         </div>
