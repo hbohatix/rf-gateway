@@ -176,6 +176,10 @@ class DirectAudioStream:
 
 
 class DirectAudioClient:
+    sample_rate = 8000
+    chunk_duration_ms = 20
+    chunk_bytes = CHUNK_BYTES
+
     def __init__(self) -> None:
         self.ffmpeg_path = shutil.which("ffmpeg")
 
