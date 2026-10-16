@@ -36,9 +36,9 @@ from app.call_queue import (
 )
 
 
-MIN_POLL_INTERVAL_SECONDS = 3.0
+MIN_POLL_INTERVAL_SECONDS = 5.0
 
-DEFAULT_POLL_INTERVAL_SECONDS = 3.0
+DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 
 DEFAULT_START_QUEUE_SECONDS = 300
 
@@ -882,20 +882,10 @@ class BroadcastifyWorker:
                         playlist_uuid
                     ),
                     extra_query={
-                        "pos":
-                            requested_pos,
-
-                        "doInit":
-                            do_init,
-
-                        "systemId":
-                            0,
-
-                        "sid":
-                            0,
-
-                        "sessionKey":
-                            self._session_key,
+                        "pos": requested_pos,
+                        # Developer API uses GET; browser-only
+                        # sid=0/sessionKey/systemId fields are omitted.
+                        # Playlist selectors do not support init.
                     },
                 )
             )

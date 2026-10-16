@@ -762,7 +762,8 @@
 }
 
 
-.source-field input {
+.source-field input,
+.source-field select {
   width: 100%;
 
   box-sizing: border-box;
@@ -799,7 +800,8 @@
 }
 
 
-.source-field input:focus {
+.source-field input:focus,
+.source-field select:focus {
   border-color:
     rgba(
       255,
@@ -810,7 +812,8 @@
 }
 
 
-.source-field input:disabled {
+.source-field input:disabled,
+.source-field select:disabled {
   opacity: 0.55;
 }
 

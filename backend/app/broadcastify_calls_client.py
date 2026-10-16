@@ -22,8 +22,8 @@ DEFAULT_WEB_BASE_URL = (
 )
 
 DEFAULT_LIVE_CALLS_URL = (
-    "https://www.broadcastify.com"
-    "/calls/apis/live-calls"
+    "https://api.bcfy.io"
+    "/calls/v1/live/"
 )
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
@@ -1285,293 +1285,93 @@ class BroadcastifyCallsClient:
     def get_live_calls(
         self,
         *,
-        playlist_uuid:
-            str
-            | None = None,
-        group_id:
-            str
-            | None = None,
-        extra_query:
-            Mapping[
-                str,
-                Any,
-            ]
-            | None = None,
+        playlist_uuid: str | None = None,
+        group_id: str | None = None,
+        extra_query: Mapping[str, Any] | None = None,
     ) -> Any:
-        endpoint = (
-            self._require_endpoint(
-                path_template=(
-                    self.config
-                    .live_calls_path
-                ),
+        """Fetch calls using the licensed BCFY Developer API and signed JWT.
 
-                environment_name=(
-                    ENV_LIVE_CALLS_PATH
-                ),
-            )
+        The old website's /calls/apis/live-calls endpoint is NOT a
+        developer API. Never send developer JWT credentials there.
+        """
+        endpoint = self._require_endpoint(
+            path_template=self.config.live_calls_path,
+            environment_name=ENV_LIVE_CALLS_PATH,
         )
 
+        query = dict(extra_query or {})
 
-        form: dict[
-            str,
-            Any,
-        ] = {}
-
-
-        if extra_query:
-            form.update(
-                extra_query
-            )
-
+        # Compatibility with worker code that previously used the
+        # website AJAX form; do not send browser-only fields to API.
+        do_init = query.pop("doInit", None)
+        query.pop("sessionKey", None)
+        query.pop("systemId", None)
 
         if playlist_uuid:
-            if (
-                "playlist_uuid"
-                in form
-            ):
-                raise (
-                    ValueError(
-                        (
-                            "playlist_uuid cannot be "
-                            "provided both as an argument "
-                            "and in extra_query"
-                        )
-                    )
-                )
-
-
-            form[
-                "playlist_uuid"
-            ] = (
-                playlist_uuid
-            )
-
+            if "playlist_uuid" in query:
+                raise ValueError("playlist_uuid cannot be provided twice")
+            query["playlist_uuid"] = playlist_uuid
 
         if group_id:
-            if (
-                "groups"
-                in form
-            ):
-                raise (
-                    ValueError(
-                        (
-                            "group_id cannot be provided "
-                            "together with groups in "
-                            "extra_query"
-                        )
-                    )
-                )
+            if "groups" in query:
+                raise ValueError("group_id conflicts with groups")
+            query["groups"] = group_id
 
+        # Old AJAX requests always passed sid=0; that is not a selector.
+        if str(query.get("sid", "")).strip() in ("", "0"):
+            query.pop("sid", None)
 
-            form[
-                "groups"
-            ] = (
-                group_id
-            )
-
-
-        selector_names = (
-            "playlist_uuid",
-            "sid",
-            "nodeId",
-            "groups",
-        )
-
-
+        selectors = ("playlist_uuid", "sid", "nodeId", "groups")
         selected = [
-            name
-            for name
-            in selector_names
-            if (
-                form.get(
-                    name
-                )
-                not in (
-                    None,
-                    "",
-                    0,
-                    "0",
-                    [],
-                    (),
-                )
-            )
+            key for key in selectors
+            if query.get(key) not in (None, "", 0, "0", [], ())
         ]
-
-
-        if (
-            len(
-                selected
+        if len(selected) != 1:
+            raise ValueError(
+                "Exactly one Calls selector required: "
+                "playlist_uuid, sid, nodeId or groups"
             )
-            != 1
+
+        if selected[0] == "groups":
+            groups = query["groups"]
+            values = (
+                [str(value).strip() for value in groups]
+                if isinstance(groups, (list, tuple))
+                else [part.strip() for part in str(groups).split(",")]
+            )
+            values = [value for value in values if value]
+            if not 1 <= len(values) <= 5:
+                raise ValueError("Select between 1 and 5 groups")
+            query["groups"] = ",".join(values)
+
+        # init is supported for a single group/node, not playlists.
+        if selected[0] in ("groups", "nodeId") and (
+            selected[0] != "groups" or len(query["groups"].split(",")) == 1
         ):
-            raise (
-                ValueError(
-                    (
-                        "Broadcastify Live Calls requires "
-                        "exactly one selector: "
-                        "playlist_uuid, sid, nodeId, "
-                        "or groups"
-                    )
-                )
-            )
-
-
-        if (
-            "groups"
-            in selected
-        ):
-            groups_value = (
-                form[
-                    "groups"
-                ]
-            )
-
-
-            if isinstance(
-                groups_value,
-                (
-                    list,
-                    tuple,
-                ),
-            ):
-                groups = [
-                    str(
-                        item
-                    )
-                    .strip()
-                    for item
-                    in groups_value
-                    if (
-                        str(
-                            item
-                        )
-                        .strip()
-                    )
-                ]
-
-            else:
-                groups = [
-                    item.strip()
-                    for item
-                    in str(
-                        groups_value
-                    )
-                    .split(
-                        ","
-                    )
-                    if item.strip()
-                ]
-
-
-            if not groups:
-                raise (
-                    ValueError(
-                        "groups cannot be empty"
-                    )
-                )
-
-
-            if (
-                len(
-                    groups
-                )
-                > 5
-            ):
-                raise (
-                    ValueError(
-                        (
-                            "Broadcastify Live Calls "
-                            "supports at most 5 groups"
-                        )
-                    )
-                )
-
-
-            form[
-                "groups"
-            ] = ",".join(
-                groups
-            )
-
-
-        form.setdefault(
-            "pos",
-            int(
-                time.time()
-            ),
-        )
-
-
-        form.setdefault(
-            "doInit",
-            0,
-        )
-
-
-        form.setdefault(
-            "systemId",
-            0,
-        )
-
-
-        form.setdefault(
-            "sid",
-            0,
-        )
-
-
-        session_key = (
-            str(
-                form.get(
-                    "sessionKey"
-                )
-                or
-                self._live_session_key
-            )
-            .strip()
-        )
-
-
-        if not session_key:
-            raise (
-                ValueError(
-                    "sessionKey cannot be empty"
-                )
-            )
-
-
-        form[
-            "sessionKey"
-        ] = (
-            session_key
-        )
-
-
-        if playlist_uuid:
-            referer = (
-                DEFAULT_WEB_BASE_URL
-                + "/calls/playlists/"
-                + "?uuid="
-                + urllib.parse.quote(
-                    playlist_uuid,
-                    safe="",
-                )
-                + "&view=list"
-            )
-
+            if do_init is not None:
+                query.setdefault("init", 1 if int(do_init) else 0)
         else:
-            referer = (
-                DEFAULT_WEB_BASE_URL
-                + "/calls/"
+            query.pop("init", None)
+
+        if "pos" in query:
+            query["pos"] = int(query["pos"])
+            if query["pos"] < 0:
+                raise ValueError("pos must be non-negative")
+
+        # Block accidental token disclosure to a website endpoint or
+        # a misconfigured third-party origin.
+        url = self._build_url(endpoint, query)
+        if not self._is_api_origin(url):
+            raise BroadcastifyCallsConfigurationError(
+                "BROADCASTIFY_CALLS_LIVE_CALLS_PATH must use the "
+                "configured BCFY Developer API origin, not "
+                "www.broadcastify.com/calls/apis/live-calls"
             )
 
-
-        return (
-            self._request_form_json(
-                path=endpoint,
-                form=form,
-                referer=referer,
-            )
+        return self._request_json(
+            method="GET",
+            path=endpoint,
+            query=query,
         )
 
 

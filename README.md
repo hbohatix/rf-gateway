@@ -477,12 +477,36 @@ BROADCASTIFY_CALLS_JWT_TTL_SECONDS=3600
 BROADCASTIFY_CALLS_TIMEOUT_SECONDS=15
 
 BROADCASTIFY_CALLS_PLAYLIST_PATH=
-BROADCASTIFY_CALLS_LIVE_CALLS_PATH=https://www.broadcastify.com/calls/apis/live-calls
+BROADCASTIFY_CALLS_LIVE_CALLS_PATH=https://api.bcfy.io/calls/v1/live/
 BROADCASTIFY_CALLS_CALL_PATH=
 BROADCASTIFY_CALLS_GROUP_ARCHIVE_PATH=
 ```
 
 Use endpoint values and credentials appropriate for your approved Broadcastify Calls API access.
+
+### Calls API developer JWT authentication
+
+**Broadcastify Calls** uses the official `GET https://api.bcfy.io/calls/v1/live/` endpoint and an HS256 JWT (`kid`, `iss`, `iat`, `exp`) signed using `BROADCASTIFY_CALLS_SIGNING_SECRET`. RF Gateway signs calls automatically; it does **not** need, store or automate any website login cookie. The legacy `www.broadcastify.com/calls/apis/live-calls` AJAX endpoint has been removed from the Calls Worker; it returns `403 auth_required` without a website session.
+
+If you set `BROADCASTIFY_CALLS_LIVE_CALLS_PATH` explicitly in your local `backend/.env`, update it to `https://api.bcfy.io/calls/v1/live/` (or remove the key entirely to use the new default). Keep `BASE_URL=https://api.bcfy.io`. Old web endpoints are rejected to prevent leaking a developer JWT to another origin. **Never post your key ID, secret, minted JWT, or `.env` contents in public logs or chat.**
+
+Developer Calls polling now respects a **minimum five-second interval** and uses `playlist_uuid` plus a `pos` cursor; the server's `lastPos` advances the cursor. The web player's `doInit`, `sessionKey`, `systemId` and `sid=0` are not sent. HTTP 401/403 from the developer API requires checking credential configuration, issuer, entitlements or balance, not inventing a browser login flow.
+
+Start by checking local status without showing credentials:
+
+```bash
+cd backend && source .venv/bin/activate
+python - <<'PY'
+from app.broadcastify_calls_client import broadcastify_calls_client as client
+s = client.configuration_status()
+for k in ("configured", "key_id_configured", "signing_secret_configured", "issuer_configured"):
+    print(k + ":", s.get(k))
+print("live_endpoint_correct:", client.config.live_calls_path.rstrip("/") == "https://api.bcfy.io/calls/v1/live")
+PY
+```
+
+This does not make a billable API call. Use a **single, deliberate** live query before activating a polling route.
+
 
 Do **not** commit real secrets.
 
@@ -911,6 +935,12 @@ source .venv/bin/activate
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
+
+## Direct HTTP audio as an independent source
+
+Routes → Add Route can also use a **Direct HTTP Audio (authorized)** URL when you own the source or have permission to programmatically process and transmit it. The existing P25 activity gate/IMBE pipeline is reused. FFmpeg decodes a continuous media stream to 8 kHz 16-bit mono PCM (320 bytes per 20 ms) and reconnects on failure; preflight probes for supported media MIME types. It does **not** unlock Broadcastify website HLS.
+
+To create a direct source in a single unified route setup, use `source_type: "direct_audio"` with `source_url`, `device_id`, `protocol: "p25"`, and `start_now: false`. A running route should be stopped before changing sources. For manual control use **Advanced → Sources → Direct HTTP Audio**.
 
 ### `POST /api/sources/broadcastify/probe`
 
