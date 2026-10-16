@@ -1561,3 +1561,43 @@ The **Routes → Add Route** form can now create/reuse a Calls source directly f
 A syntactically valid Calls selector can be saved **without any external request**. The new sources carry `remote_verified: false` because actual playlist/group visibility is confirmed only by a subsequent live API poll, which may be billed. Saving a route does not start the RF transmitter unless `start_now` is explicitly selected.
 
 This does not yet provide a remote, searchable Broadcastify Calls catalog: the exact authenticated discovery endpoint schemas must be confirmed against the user's Developer Portal documentation before implementing listing by county/system. No undocumented API endpoints are invented here.
+
+## Calls catalog and RF TX evidence
+
+**Routes → Add Route → Browse Broadcastify Calls** searches public Calls playlists by
+name, and samples of currently active talkgroups and nodes (system/site
+coverage) from the public Calls landing page. Entries can be selected without
+typing identifiers. The public-playlist listing is broad, but the live-sample
+index is **not** a complete list of systems/groups; implementing licensed
+full county discovery needs the exact endpoint definitions from
+`https://bcfy.io/dev/docs/`. No undocumented Calls API paths are used.
+The backend caches each public page for 10 minutes. Choosing a result creates
+or reuses a Calls source and uses the already configured developer JWT
+when the route subsequently polls for calls. Public discovery itself never
+uses the JWT or reads paid Calls records.
+
+**Routes → RF TX Monitor** reports:
+- P25 network records and UDP datagrams handed to MMDVM (not proof of RF).
+- Current MMDVM-IQ TX ON/OFF indication and per-call TX ON/OFF log event count.
+- Runtime errors and MMDVM-Host error lines correlated with a call.
+- Optional independent RF energy evidence from an external receiver.
+
+If a separate, calibrated RF receiver or RF power sensor is present, it can
+atomically update a JSON file configured via `RF_TX_EVIDENCE_FILE` in
+`backend/.env`. Example **format only** (do not fabricate observations):
+
+```json
+{
+  "observed_at_unix": 1792000000.0,
+  "frequency_hz": 438825000,
+  "rf_detected": true,
+  "power_dbm": -48.2
+}
+```
+
+The timestamp must be within the P25 handoff interval and the frequency
+within 15 kHz of the configured channel to count as an independent RF-energy
+observation. Until a real external measuring device is connected, RF is
+**UNVERIFIED** even if the modem reports TX ON and UDP handoff succeeds.
+An energy detector alone does not decode or verify the P25 modulation/audio.
+An MMDVM UART backend may have no IQ TX ON/OFF indications.
