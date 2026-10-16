@@ -1540,6 +1540,12 @@ function RoutesPanel({
     async (
       route: Route
     ) => {
+      if (!window.confirm(
+        `Delete "${route.name}"? Its source will also be deleted if no other route uses it.`
+      )) {
+        return;
+      }
+
       setActionRouteId(
         route.id
       );
@@ -1553,7 +1559,7 @@ function RoutesPanel({
           await fetch(
             (
               `${apiBaseUrl}` +
-              `/api/routes/${route.id}`
+              `/api/routes/${route.id}?cleanup_source=true`
             ),
             {
               method:
@@ -1571,6 +1577,15 @@ function RoutesPanel({
             )
           );
         }
+
+        const deleted = await readApiObject(response);
+        if (deleted?.source_deleted) onSourceCreated?.();
+        if (deleted?.source_cleanup_error) {
+          setError(
+            `Route deleted; source cleanup failed: ${deleted.source_cleanup_error}`
+          );
+        }
+        if (editingRouteId === route.id) setEditingRouteId(null);
 
         setStatuses(
           (
