@@ -786,6 +786,8 @@ function App() {
     );
 
 
+  const [sourceRefreshKey, setSourceRefreshKey] = useState(0);
+
   const [
     routeCount,
     setRouteCount,
@@ -2387,6 +2389,7 @@ function App() {
           <RoutesPanel
             apiBaseUrl={API_BASE_URL}
             onRoutesChanged={setRouteCount}
+            onSourceCreated={() => setSourceRefreshKey((value) => value + 1)}
           />
         </div>
 
@@ -2400,7 +2403,7 @@ function App() {
           }}>
             Advanced: Manage and probe saved sources
           </summary>
-          <SourcesPanel onCountChange={setSourceCount} />
+          <SourcesPanel onCountChange={setSourceCount} refreshKey={sourceRefreshKey} />
         </details>
 
 
