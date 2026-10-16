@@ -55,12 +55,14 @@ from app.route_runtime import (
 
 from app.sources import (
     get_source_or_404,
+    probe_direct_audio,
     create_source,
     delete_source,
     load_store as load_sources_store,
     parse_broadcastify_source_url,
     SourceCreateRequest,
 )
+from app.direct_audio_client import validate_direct_audio_url
 
 
 router = APIRouter(
@@ -138,7 +140,7 @@ class RouteSetupRequest(BaseModel):
     source_id: str | None = None
     source_url: str | None = Field(default=None, max_length=2048)
     source_type: Literal[
-        "auto", "broadcastify_calls", "broadcastify_live_audio"
+        "auto", "broadcastify_calls", "broadcastify_live_audio", "direct_audio"
     ] = "auto"
     start_now: bool = False
 
@@ -459,6 +461,12 @@ def run_preflight(
         )
     )
 
+    if (
+        route.get("enabled", False)
+        and source.get("type") == "direct_audio"
+    ):
+        source["probe"] = probe_direct_audio(source["url"])
+
     # A reachable Broadcastify page and an installed decoder do
     # not guarantee that an HLS listening session is available.
     # Check only when a live-audio route is explicitly preflighted.
@@ -641,16 +649,12 @@ def start_source_pipeline(
         }
 
 
-    if (
-        source_type
-        ==
-        "broadcastify_live_audio"
-    ):
+    if source_type in ("broadcastify_live_audio", "direct_audio"):
         if protocol != "p25":
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Broadcastify Live Audio "
+                    "Continuous Live Audio "
                     "currently supports "
                     "P25 routes only"
                 ),
@@ -675,7 +679,7 @@ def start_source_pipeline(
                 status_code=500,
                 detail=(
                     "Unable to start "
-                    "Broadcastify Live Audio "
+                    "Live Audio "
                     f"pipeline: {error}"
                 ),
             ) from error
@@ -806,11 +810,7 @@ def source_pipeline_running(
         )
 
 
-    if (
-        source_type
-        ==
-        "broadcastify_live_audio"
-    ):
+    if source_type in ("broadcastify_live_audio", "direct_audio"):
         live_audio = (
             result.get(
                 "live_audio"
@@ -1111,10 +1111,17 @@ def resolve_setup_source(request: RouteSetupRequest) -> tuple[dict, bool]:
     if existing_id:
         return get_source_or_404(existing_id), False
 
-    try:
-        parsed = parse_broadcastify_source_url(source_url)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    if request.source_type == "direct_audio":
+        try:
+            direct_url = validate_direct_audio_url(source_url)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        parsed = {"source_type": "direct_audio", "canonical_url": direct_url}
+    else:
+        try:
+            parsed = parse_broadcastify_source_url(source_url)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     parsed_type = parsed["source_type"]
     if request.source_type not in ("auto", parsed_type):
