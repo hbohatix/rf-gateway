@@ -840,6 +840,12 @@
 }
 
 
+.route-worker__hint {
+  color: #94a3b8;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .route-worker__error {
   padding:
     9px
