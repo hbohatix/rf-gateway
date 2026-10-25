@@ -426,6 +426,7 @@ The RF Gateway MMDVM-IQ build currently allows these application-level amateur-b
 The build script is:
 
 ```bash
+cd ~/rf-gateway
 bash scripts/build-mmdvm-iq.sh
 ```
 
@@ -437,23 +438,36 @@ This does **not** imply that every SDR can transmit across those entire ranges. 
 
 # Installation
 
+## Quick start (Raspberry Pi)
+
+The whole setup, in order. Every block can be pasted as is: each one starts with its own `cd`, so it does not matter which directory you are in.
+
+```bash
+git clone --recurse-submodules https://github.com/hbohatix/rf-gateway.git ~/rf-gateway
+cd ~/rf-gateway
+./scripts/install-debian.sh                 # packages, Python venv, MMDVM, vocoders, frontend
+nano ~/rf-gateway/backend/.env              # Broadcastify Calls credentials, see below
+./scripts/rf-gateway install                # adds the `rf-gateway` command
+rf-gateway start --preview                  # start backend + UI
+```
+
+Then open `http://<pi-address>:5173`. Day to day you only need `rf-gateway start --preview`, `rf-gateway status` and `rf-gateway stop` (see [Running RF Gateway](#running-rf-gateway)).
+
+> The paths in this README assume the repository is at `~/rf-gateway`. If you cloned it elsewhere, replace `~/rf-gateway` accordingly.
+
 ## 1. Clone the repository
 
 ```bash
 git clone --recurse-submodules \
-  https://github.com/hbohatix/rf-gateway.git
-
-cd rf-gateway
+  https://github.com/hbohatix/rf-gateway.git ~/rf-gateway
 ```
 
 If the repository was cloned without submodules:
 
 ```bash
+cd ~/rf-gateway
 git submodule sync --recursive
-
-git submodule update \
-  --init \
-  --recursive
+git submodule update --init --recursive
 ```
 
 The repository currently uses these submodules:
@@ -469,8 +483,7 @@ third_party/imbe_vocoder
 ## 2. Run the Debian / Raspberry Pi OS installer
 
 ```bash
-chmod +x scripts/install-debian.sh
-
+cd ~/rf-gateway
 ./scripts/install-debian.sh
 ```
 
@@ -484,6 +497,7 @@ The installer performs the main development setup:
 - installs Python dependencies,
 - builds MMDVM-IQ with the RF Gateway amateur-band frequency profile,
 - builds MMDVM-Host,
+- builds the IMBE and AMBE vocoder wrappers,
 - installs frontend dependencies,
 - verifies the frontend production build,
 - checks FFmpeg,
@@ -494,37 +508,31 @@ The installer performs the main development setup:
 
 ## 3. Build the native vocoder wrappers
 
-The installer builds both wrappers. To rebuild them manually:
+The installer already builds both wrappers. To rebuild them (for example after updating the repository):
 
 ```bash
+cd ~/rf-gateway
 bash backend/native/build_imbe_wrapper.sh   # IMBE: P25
 bash backend/native/build_ambe_wrapper.sh   # AMBE+2 / AMBE: DMR, YSF, NXDN, D-Star
 ```
 
-The P25 source-to-RF path requires the native IMBE wrapper.
-
-```bash
-cd backend/native
-
-chmod +x build_imbe_wrapper.sh
-
-./build_imbe_wrapper.sh
-```
-
-Expected output library:
+They produce these libraries (the `.so` files are libraries, not commands, so they cannot be run):
 
 ```text
-backend/native/libimbe_vocoder_wrapper.so
+~/rf-gateway/backend/native/libimbe_vocoder_wrapper.so
+~/rf-gateway/backend/native/libambe_vocoder_wrapper.so
 ```
 
-Quick verification:
+Check that they exist and export their functions:
 
 ```bash
-file backend/native/libimbe_vocoder_wrapper.so
-
-nm -D backend/native/libimbe_vocoder_wrapper.so \
-  | grep rf_gateway_imbe_
+cd ~/rf-gateway
+ls -l backend/native/*.so
+nm -D backend/native/libimbe_vocoder_wrapper.so | grep rf_gateway_imbe_
+nm -D backend/native/libambe_vocoder_wrapper.so | grep rf_gateway_ambe_
 ```
+
+The UI shows the same thing per mode: a green dot on a mode card means its vocoder is ready.
 
 ---
 
@@ -532,10 +540,10 @@ nm -D backend/native/libimbe_vocoder_wrapper.so \
 
 Broadcastify Calls API credentials must be provided locally.
 
-Create:
+Create `~/rf-gateway/backend/.env`:
 
-```text
-backend/.env
+```bash
+nano ~/rf-gateway/backend/.env
 ```
 
 Example template:
@@ -569,8 +577,8 @@ Developer Calls polling now respects a **minimum five-second interval** and uses
 Start by checking local status without showing credentials:
 
 ```bash
-cd backend && source .venv/bin/activate
-python - <<'PY'
+cd ~/rf-gateway/backend
+.venv/bin/python - <<'PY'
 # Load backend/.env before importing the cached API client.
 import app.main
 from app.broadcastify_calls_client import broadcastify_calls_client as client
@@ -589,7 +597,7 @@ Do **not** commit real secrets.
 Recommended permissions:
 
 ```bash
-chmod 600 backend/.env
+chmod 600 ~/rf-gateway/backend/.env
 ```
 
 The backend loads `backend/.env` at startup.
@@ -598,22 +606,50 @@ The backend loads `backend/.env` at startup.
 
 # Running RF Gateway
 
-One command starts and stops both the FastAPI backend and the web UI:
+One command starts and stops both the FastAPI backend and the web UI. Install it once:
 
 ```bash
-./scripts/rf-gateway start      # start backend + frontend in the background
-./scripts/rf-gateway status     # what is running, health, RF runtime, URLs
-./scripts/rf-gateway stop       # stop both
-```
-
-To use it from anywhere as `rf-gateway`, install the command once (it creates `~/.local/bin/rf-gateway`, a link to this checkout's script):
-
-```bash
+cd ~/rf-gateway
 ./scripts/rf-gateway install
-rf-gateway start
 ```
 
-If `rf-gateway` is not found afterwards, open a new login shell, or add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`. `rf-gateway uninstall` removes the link.
+This creates `~/.local/bin/rf-gateway`, a link to this checkout's script. If `rf-gateway` is not found afterwards, open a new login shell, or add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`. `rf-gateway uninstall` removes the link.
+
+Then, from any directory:
+
+```bash
+rf-gateway start --preview      # start backend + UI (built UI: recommended on the Pi)
+rf-gateway status               # what is running, health, RF runtime, URLs
+rf-gateway stop                 # stop both (and any transmission)
+rf-gateway logs -f              # follow the logs
+```
+
+`rf-gateway start` without `--preview` runs the UI in Vite development mode (hot reload while editing the code). It is slower on the Pi, and after code updates the browser may need a hard refresh (Ctrl+F5); use `--preview` for normal operation.
+
+**Use either `rf-gateway` or the manual commands below, not both:** they use the same ports (8000 and 5173).
+
+## Updating
+
+```bash
+rf-gateway stop
+cd ~/rf-gateway
+git pull
+git submodule update --init --recursive
+./scripts/install-debian.sh     # only needed when dependencies or native code changed; safe to re-run
+rf-gateway start --preview
+```
+
+Then reload the UI in the browser with Ctrl+F5.
+
+## Sharing the SDR with other software
+
+Only one program can use the SXceiver (or any SDR) at a time. Before using it with another application (for example FlowStation), stop RF Gateway:
+
+```bash
+rf-gateway stop
+```
+
+RF Gateway uses the SDR while transmitting, and probes it whenever the UI loads the device list, so stopping only the transmission is not enough. Start it again with `rf-gateway start --preview` when the SDR is free.
 
 ## Commands
 
@@ -662,43 +698,32 @@ Stopping RF Gateway also stops any active transmission, because the backend shut
 
 ## Start the backend manually
 
-```bash
-cd backend
-
-source .venv/bin/activate
-
-python -m uvicorn app.main:app \
-  --host 0.0.0.0 \
-  --port 8000
-```
-
-For development with reload:
+Only for debugging; normally use `rf-gateway start`. Stop it first (`rf-gateway stop`), because both use the same ports. In one terminal:
 
 ```bash
-python -m uvicorn app.main:app \
-  --reload \
-  --host 0.0.0.0 \
-  --port 8000
+cd ~/rf-gateway/backend
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+Add `--reload` to restart the backend automatically when its code changes. `python -m uvicorn` without `.venv/bin/` fails with `No module named uvicorn`: the packages are installed in the project's virtual environment, not system-wide.
 
 ---
 
 ## Start the frontend manually
 
+In a second terminal:
+
 ```bash
-cd frontend
-
-npm install
-
-npm run dev -- \
-  --host 0.0.0.0 \
-  --port 5173
+cd ~/rf-gateway/frontend
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
-Production build check:
+The installer already ran `npm install`; run it again (`cd ~/rf-gateway/frontend && npm install`) only if `package.json` changed. To serve the built UI instead of the development server:
 
 ```bash
+cd ~/rf-gateway/frontend
 npm run build
+npm run preview -- --host 0.0.0.0 --port 5173
 ```
 
 ---
@@ -1056,9 +1081,8 @@ A free Broadcastify login is not automatically an approved programmatic audio AP
 Run the no-network regression tests:
 
 ```bash
-cd backend
-source .venv/bin/activate
-python -m unittest discover -s tests -p 'test_*.py'
+cd ~/rf-gateway/backend
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 
@@ -1542,26 +1566,21 @@ Broadcastify Calls API access or the technical ability to receive a Live Audio f
 ## Backend import
 
 ```bash
-cd backend
-
-source .venv/bin/activate
-
-python -c \
-  'from app.main import app; print("MAIN IMPORT OK")'
+cd ~/rf-gateway/backend
+.venv/bin/python -c 'from app.main import app; print("MAIN IMPORT OK")'
 ```
 
 ## Compile a backend module
 
 ```bash
-python -m py_compile \
-  app/example.py
+cd ~/rf-gateway/backend
+.venv/bin/python -m py_compile app/example.py
 ```
 
 ## Frontend build
 
 ```bash
-cd frontend
-
+cd ~/rf-gateway/frontend
 npm run build
 ```
 
@@ -1570,15 +1589,19 @@ npm run build
 Validate the generated frames with MMDVM-Host's own decoders (builds `dmr_frame_check`, `ysf_frame_check`, `dstar_frame_check`):
 
 ```bash
+cd ~/rf-gateway
 bash backend/native/tools/build_frame_checks.sh
-cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+cd ~/rf-gateway/backend
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 Run a complete transmission through the **real MMDVM-Host binary** with a simulated modem. Nothing is transmitted; MMDVM-Host must not already be running:
 
 ```bash
-cd backend
-.venv/bin/python -m tools.mmdvm_loopback dmr     # also: ysf, dstar, nxdn, fm, p25
+cd ~/rf-gateway/backend
+.venv/bin/python -m tools.mmdvm_loopback dmr                 # also: ysf, dstar, nxdn, fm, p25
+.venv/bin/python -m tools.mmdvm_loopback dmr --timeslot 1    # DMR frames must land in slot 1 only
+.venv/bin/python -m tools.mmdvm_loopback dmr --source 36389d1b --seconds 120   # real audio of a saved source (id prefix), saved mode settings
 ```
 
 The tool prints MMDVM-Host's log (e.g. `received network voice header … BER: 0.0%`) and the frames MMDVM-Host queued for the modem.
@@ -1586,6 +1609,7 @@ The tool prints MMDVM-Host's log (e.g. `received network voice header … BER: 0
 ## Frontend lint
 
 ```bash
+cd ~/rf-gateway/frontend
 npm run lint
 ```
 
@@ -1594,16 +1618,15 @@ npm run lint
 # Updating submodules
 
 ```bash
+cd ~/rf-gateway
 git submodule sync --recursive
-
-git submodule update \
-  --init \
-  --recursive
+git submodule update --init --recursive
 ```
 
 To inspect current submodule revisions:
 
 ```bash
+cd ~/rf-gateway
 git submodule status
 ```
 

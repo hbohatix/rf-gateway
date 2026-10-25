@@ -557,33 +557,12 @@ echo " RF Gateway installation completed"
 echo "============================================================"
 echo
 
-echo "Backend environment:"
+echo "Next steps (they work from any directory):"
 echo
-echo "  source backend/.venv/bin/activate"
-
+echo "  1. Broadcastify Calls credentials:  nano $PROJECT_DIR/backend/.env"
+echo "  2. Install the rf-gateway command:  $PROJECT_DIR/scripts/rf-gateway install"
+echo "  3. Start backend + UI:              rf-gateway start --preview"
+echo "     Status / logs / stop:            rf-gateway status | rf-gateway logs -f | rf-gateway stop"
 echo
-echo "MMDVM-IQ:"
-echo
-echo "  third_party/MMDVM-IQ/MMDVM-IQ"
-
-echo
-echo "MMDVM-Host:"
-echo
-echo "  third_party/MMDVM-Host/MMDVM-Host"
-
-echo
-echo "MMDVM configuration:"
-echo
-echo "  config/mmdvm/"
-
-echo
-echo "Start / stop RF Gateway:"
-echo
-echo "  ./scripts/rf-gateway start     (or: start --preview)"
-echo "  ./scripts/rf-gateway status"
-echo "  ./scripts/rf-gateway stop"
-echo
-echo "Install the 'rf-gateway' command for this user:"
-echo
-echo "  ./scripts/rf-gateway install"
+echo "Then open http://$(hostname -I 2>/dev/null | awk '{print $1}'):5173"
 echo
