@@ -1,21 +1,20 @@
 # RF Gateway
 
-RF Gateway is an experimental software-defined radio gateway that routes supported internet audio sources to RF through a configurable digital radio stack.
+RF Gateway is an experimental software-defined radio gateway that routes internet and remote-SDR audio to RF through MMDVM.
 
 The project combines:
 
 - a **FastAPI** backend,
-- a **React + TypeScript + Vite** frontend,
+- a **React + TypeScript + Vite** frontend in the style of the TETRA FlowStation dashboard (dark / light / blue themes, PL / EN),
 - **SoapySDR** hardware discovery and control,
-- **MMDVM-Host**,
-- **MMDVM-IQ**,
-- an **IMBE vocoder** path for P25,
-- Broadcastify Calls and Broadcastify Live Audio source handling.
+- **MMDVM-Host** and **MMDVM-IQ**,
+- software vocoders: **IMBE** (P25) and **AMBE+2 / AMBE** (DMR, System Fusion DN, NXDN, D-Star) from OP25,
+- sources: Broadcastify Calls, authorized HTTP audio and **remote SDRs** (rtl_tcp, KiwiSDR, GQRX / SDR++ / SDRangel / OpenWebRX audio).
 
-The current development focus is **P25 / C4FM end-to-end audio routing** across hardware-agnostic MMDVM backends. SXceiver/SoapySX is the first validated SDR path; classic MMDVM UART/USB/GPIO modems are being added as a parallel backend.
+Source audio can be transmitted as **FM, DMR, System Fusion (YSF DN), D-Star, NXDN or P25**.
 
-> **Project status:** active development / experimental.  
-> P25 end-to-end transmission has been validated on SXceiver/SoapySX. RF Gateway is designed to support both SDR-based MMDVM-IQ hardware and conventional MMDVM UART/USB/GPIO modems. FM, DMR and TETRA configuration exists, but their source-audio bridge paths are not yet at the same level of completion.
+> **Project status:** active development / experimental.
+> P25 end-to-end transmission has been validated on SXceiver/SoapySX. The DMR, YSF, D-Star, NXDN and FM paths are validated against the real MMDVM-Host binary with a simulated modem (`backend/tools/mmdvm_loopback.py`) and against MMDVM-Host's own decoders, but have not yet been checked on air with a receiving radio.
 
 ---
 
@@ -148,6 +147,69 @@ Current tuned defaults:
 | Hysteresis | 6 dB |
 
 ---
+
+## Digital and analog voice modes
+
+Every mode takes 8 kHz mono PCM from a route (Calls, Live/HTTP audio or remote SDR), runs it through the same activity gate and hands the encoded audio to MMDVM-Host over its local network interface. MMDVM-Host then drives the SDR (MMDVM-IQ) or MMDVM modem.
+
+| Mode | Vocoder | MMDVM-Host interface | RF Gateway port → MMDVM-Host port |
+|---|---|---|---|
+| FM | none (PCM) | `[FM Network]` `FMD` packets | UDP 4810 → 3810 |
+| DMR | AMBE+2 3600x2450 | `[DMR Network]` `DMRD` (Homebrew data) | UDP 62031 → 62032 |
+| System Fusion | AMBE+2 (DN, V/D mode 2) | `[System Fusion Network]` `YSFD` | UDP 4200 → 3200 |
+| D-Star | AMBE 3600x2400 | `[D-Star Network]` `DSRP` | UDP 20010 → 20011 |
+| NXDN | AMBE+2 (EHR 4800) | `[NXDN Network]` Icom protocol | UDP 14020 → 14021 |
+| P25 | IMBE | `[P25 Network]` | UDP 42020 → 32010 |
+| TETRA | — | not supported by MMDVM (see TETRA FlowStation) | — |
+
+How each path is built:
+
+- **DMR** — voice LC header (full LC, BPTC(196,96), RS(12,9)), voice bursts A–F with three FEC-protected AMBE+2 frames each, terminator with LC. MMDVM-Host regenerates sync, slot type, EMB and embedded LC. Simplex (DMO) hotspots transmit on **TS2** only.
+- **System Fusion** — DN (V/D mode 2) frames: FICH (Golay + K=5 convolution + interleave), callsign DCH, VCH with 27 bits ×3 repetition, whitening and interleaving; header and terminator with CSD1/CSD2. Source callsign, destination and DG-ID are configurable.
+- **D-Star** — radio header with X.25 CRC (MY / suffix / YOUR / DIRECT), AMBE 2400 frames with Golay + PRNG FEC, slow-data sync and a 20-character text message.
+- **NXDN** — VCALL header and TX_REL terminator in FACCH1, voice frames with four AMBE+2 frames and the VCALL message split over the SACCH superframe (MMDVM-Host adds the NXDN FEC).
+- **FM** — PCM straight to MMDVM-Host's FM network (CTCSS, pre-emphasis and deviation applied by MMDVM-Host/modem).
+- **P25** — unchanged IMBE path.
+
+Long continuous audio is split into back-to-back transmissions every 150 s (below MMDVM-Host's 180 s timeout), for every mode.
+
+### AMBE vocoder options
+
+The default **software** encoder is OP25's AMBE encoder (`backend/native/ambe`, see its README for provenance and licensing), so no hardware is needed. For AMBE+2 modes (DMR, YSF, NXDN) a DVSI AMBE-3000 can be selected instead in **RF Output** (experimental, not yet validated with hardware):
+
+- `dv3000_serial` — ThumbDV / DV3000 / DVstick on a serial port (e.g. `/dev/ttyUSB0`, 460800 baud),
+- `ambeserver` — an AMBE-3000 behind AMBEServer on UDP (default port 2460).
+
+## Remote SDR sources
+
+**Remote SDR** in the UI (or `POST /api/sources` with `type: "remote_sdr"`) adds a receiver as a continuous source. A remote SDR is described by one URL:
+
+| URL | Receiver |
+|---|---|
+| `rtl_tcp://host:1234?freq=145500000&mod=nfm&gain=auto&squelch=auto` | Any RTL-SDR shared with `rtl_tcp`. RF Gateway receives raw IQ (240 kS/s, tuned 60 kHz off-centre) and demodulates NFM or AM itself, with carrier squelch (`auto` = noise floor + 10 dB, `off`, or a dBFS level). Options: `ppm`, `bw` (channel width), `audio_gain`. |
+| `kiwisdr://host:8073?freq=7100000&mod=lsb` | A public or private KiwiSDR (0–30 MHz) over its WebSocket API. Modes `am`, `amn`, `nbfm`, `usb`, `lsb`, `cw`; optional S-meter `squelch` in dBm. |
+| `udp://0.0.0.0:7355?format=s16le&rate=48000` | Raw PCM pushed by GQRX ("UDP" audio), SDRangel or `rtl_fm \| nc -u`. RF Gateway listens. |
+| `tcp://host:port?format=s16le&rate=48000` | Raw PCM from an SDR++ network sink (TCP). |
+| `http(s)://…`, `rtsp://…`, `rtp://…`, `srt://…` | Compressed streams (OpenWebRX/Icecast/darkice set-ups), decoded with FFmpeg. |
+
+`POST /api/sources/remote-sdr/probe` checks a URL (rtl_tcp handshake and tuner type, KiwiSDR `/status`, HTTP reachability) without saving it. Routes accept remote SDR sources exactly like Live Audio sources: activity gate, any supported protocol, TX rollover. Only retransmit receivers and audio you are authorized to use, on frequencies you are licensed for.
+
+## Web UI
+
+The UI follows the TETRA FlowStation dashboard: a collapsible sidebar (Monitor / Radio / Sources / System), a status topbar, Dark / Light / Blue themes and Polish / English labels for the main screens.
+
+| Page | Contents |
+|---|---|
+| Dashboard | runtime hero, routes / sources / devices / mode tiles, telemetry, voice-path readiness per protocol |
+| Routes | route setup, Calls catalog, preflight, start/stop, RF TX monitor |
+| Telemetry | MMDVM-IQ / MMDVM-Host runtime figures |
+| RF Output | protocol selector (FM, DMR, YSF, D-Star, NXDN, P25, TETRA), per-mode settings (auto-saved), vocoder selection, start/stop/calibrate |
+| RF Devices | SoapySDR and MMDVM modem discovery |
+| Remote SDR | URL builder for rtl_tcp / KiwiSDR / audio streams, probe, save |
+| Saved Sources | all stored sources |
+| MMDVM Log | live MMDVM-Host / MMDVM-IQ log with filter |
+
+The frontend calls the API on its own origin (`/api/...`); Vite proxies `/api`, `/docs` and `/openapi.json` to the backend (`RFGW_BACKEND_URL`, default `http://127.0.0.1:8000`) in both `npm run dev` and `npm run preview`. Set `VITE_API_BASE_URL` to call a backend directly instead.
 
 ## Architecture
 
@@ -425,7 +487,14 @@ The installer performs the main development setup:
 
 ---
 
-## 3. Build the native IMBE wrapper
+## 3. Build the native vocoder wrappers
+
+The installer builds both wrappers. To rebuild them manually:
+
+```bash
+bash backend/native/build_imbe_wrapper.sh   # IMBE: P25
+bash backend/native/build_ambe_wrapper.sh   # AMBE+2 / AMBE: DMR, YSF, NXDN, D-Star
+```
 
 The P25 source-to-RF path requires the native IMBE wrapper.
 
@@ -654,6 +723,11 @@ backend/data/runtime/mmdvm/MMDVM-Host.ini
 | 3335 | UDP | MMDVM-Host modem local port |
 | 32010 | UDP | MMDVM-Host P25 network port |
 | 42020 | UDP | RF Gateway P25 sender local port |
+| 62032 / 62031 | UDP | DMR network (MMDVM-Host / RF Gateway) |
+| 3200 / 4200 | UDP | System Fusion network (MMDVM-Host / RF Gateway) |
+| 20011 / 20010 | UDP | D-Star network (MMDVM-Host / RF Gateway) |
+| 14021 / 14020 | UDP | NXDN network (MMDVM-Host / RF Gateway) |
+| 3810 / 4810 | UDP | FM network (MMDVM-Host / RF Gateway) |
 
 Typical P25 path:
 
@@ -695,7 +769,7 @@ OpenAPI schema:
 http://localhost:8000/openapi.json
 ```
 
-The API version currently used by the backend is `0.12.x`.
+The API version currently used by the backend is `0.13.x`.
 
 ---
 
@@ -730,6 +804,9 @@ Supported protocol names:
 ```text
 fm
 dmr
+ysf
+dstar
+nxdn
 p25
 tetra
 ```
@@ -1344,80 +1421,32 @@ Do not treat generated runtime files as static configuration.
 
 ## Working / tested
 
-- React/Vite frontend
+- React/Vite frontend (FlowStation-style shell, themes, PL/EN)
 - FastAPI backend
 - SoapySDR discovery
 - SXceiver / SoapySX runtime
 - MMDVM-IQ startup and telemetry
 - MMDVM-Host startup and telemetry
-- mode configuration persistence
-- Route CRUD
-- Route preflight
-- Broadcastify Calls source model
-- Calls polling / queue processing
+- mode configuration persistence (FM, DMR, YSF, D-Star, NXDN, P25, TETRA)
+- Route CRUD and preflight
+- Broadcastify Calls source model, polling and queue processing
 - FFmpeg audio decoding
-- native IMBE wrapper
-- PCM -> IMBE
-- P25 network formatting
-- P25 UDP sender
-- MMDVM-Host P25 network input
-- MMDVM-IQ P25 C4FM output
-- physical P25 RF transmission
-- Broadcastify Live Audio HLS transport
-- Live Audio -> PCM
-- adaptive activity gate
-- automatic TX start/end based on audio activity
-- Live Audio Route -> physical P25 RF
+- native IMBE wrapper, PCM -> IMBE -> P25 -> physical P25 RF (SXceiver)
+- native AMBE+2/AMBE wrapper (OP25 software encoder)
+- DMR, YSF DN, D-Star, NXDN and FM framing, accepted by the real MMDVM-Host binary with 0% loss / 0.0% BER (simulated modem, `tools/mmdvm_loopback.py`)
+- DMR / YSF / D-Star frames validated with MMDVM-Host's own decoders and decoded back to audio with mbelib (`native/tools/*_frame_check`)
+- Live Audio / HTTP / remote SDR -> PCM -> activity gate -> any supported mode
+- TX rollover every 150 s for long continuous audio
+- remote SDR sources: rtl_tcp (NFM/AM demodulation, squelch), KiwiSDR (validated with a public receiver), UDP/TCP/HTTP/RTSP audio
 
 ## In progress / experimental
 
-- long continuous Live Audio P25 transmission rollover
-- DMR source-audio bridge
-- TETRA source-audio bridge
-- FM source-audio bridge
+- on-air validation of DMR / YSF / D-Star / NXDN / FM with real receiving radios
+- DVSI AMBE-3000 (ThumbDV / DV3000 / AMBEServer) vocoder backend — implemented from the DVSI packet format, not yet validated with hardware
+- YSF VW (full-rate IMBE) mode
+- TETRA (not an MMDVM mode)
 - authentication/login
 - production deployment/service management
-- additional hardware support
-- frontend polish and compact route cards
-
----
-
-# Known issue: long continuous P25 transmissions
-
-MMDVM-Host currently uses a transmission timeout.
-
-A continuous P25 source session that remains open beyond the configured MMDVM timeout may be terminated by MMDVM-Host while the backend still considers the P25 streaming session active.
-
-Observed behavior:
-
-```text
-backend:
-  state = transmitting
-  p25.active = true
-  network_records_sent continues increasing
-
-MMDVM:
-  modem_mode = Idle
-  rf_tx_active = false
-```
-
-The intended fix is to perform a controlled P25 session rollover before the MMDVM timeout:
-
-```text
-P25 TX
-  |
-  | max continuous TX window
-  v
-P25 terminator
-  |
-  v
-new P25 session
-  |
-  v
-continue audio
-```
-
-A target rollover around 150 seconds leaves margin below a 180-second MMDVM timeout.
 
 ---
 
@@ -1482,6 +1511,24 @@ cd frontend
 
 npm run build
 ```
+
+## Voice-path checks without RF
+
+Validate the generated frames with MMDVM-Host's own decoders (builds `dmr_frame_check`, `ysf_frame_check`, `dstar_frame_check`):
+
+```bash
+bash backend/native/tools/build_frame_checks.sh
+cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+```
+
+Run a complete transmission through the **real MMDVM-Host binary** with a simulated modem. Nothing is transmitted; MMDVM-Host must not already be running:
+
+```bash
+cd backend
+.venv/bin/python -m tools.mmdvm_loopback dmr     # also: ysf, dstar, nxdn, fm, p25
+```
+
+The tool prints MMDVM-Host's log (e.g. `received network voice header … BER: 0.0%`) and the frames MMDVM-Host queued for the modem.
 
 ## Frontend lint
 

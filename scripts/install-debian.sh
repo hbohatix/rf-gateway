@@ -430,6 +430,18 @@ echo "MMDVM-Host version:"
 
 
 # ------------------------------------------------------------
+# Native vocoders (IMBE for P25, AMBE+2 / AMBE for DMR, YSF, NXDN, D-Star)
+# ------------------------------------------------------------
+
+echo
+echo "Building native vocoder wrappers..."
+echo
+
+bash "$BACKEND_DIR/native/build_imbe_wrapper.sh"
+bash "$BACKEND_DIR/native/build_ambe_wrapper.sh"
+
+
+# ------------------------------------------------------------
 # Frontend dependencies
 # ------------------------------------------------------------
 
