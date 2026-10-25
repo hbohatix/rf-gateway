@@ -1,737 +1,232 @@
-* {
-  box-sizing: border-box;
-}
+/* Component styles for the RF output and device views (tokens: styles/theme.css). */
 
-html {
-  background: #0d1117;
-}
+/* ── Protocol selector ── */
 
-body {
-  margin: 0;
-
-  background: #0d1117;
-  color: #e6edf3;
-
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
-}
-
-button,
-input,
-select {
-  font: inherit;
-}
-
-.app {
-  min-height: 100vh;
-}
-
-
-/* ============================================================
-   Header
-   ============================================================ */
-
-.header {
-  height: 80px;
-
-  padding: 0 32px;
-
-  background: #161b22;
-
-  border-bottom: 1px solid #30363d;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.header h1 {
-  margin: 0;
-}
-
-.header p {
-  margin: 4px 0 0;
-
-  color: #8b949e;
-}
-
-.backend-status {
-  display: flex;
-  align-items: center;
-
-  gap: 9px;
-
-  color: #8b949e;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-
-  border-radius: 50%;
-}
-
-.status-dot.online {
-  background: #3fb950;
-}
-
-.status-dot.offline {
-  background: #f85149;
-}
-
-
-/* ============================================================
-   Main dashboard
-   ============================================================ */
-
-.dashboard {
-  padding: 28px 32px;
-
+.protocol-selector {
   display: grid;
-
-  grid-template-columns:
-    repeat(4, 1fr);
-
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
 }
 
-.card,
-.rf-panel,
-.telemetry {
-  background: #161b22;
-
-  border: 1px solid #30363d;
-  border-radius: 10px;
-
-  padding: 20px;
-}
-
-.card h2 {
-  margin: 0;
-
-  font-size: 15px;
-
-  color: #8b949e;
-}
-
-.card strong {
-  display: block;
-
-  margin-top: 10px;
-
-  font-size: 36px;
-}
-
-.card p {
-  margin-bottom: 0;
-
-  color: #8b949e;
-}
-
-
-/* ============================================================
-   RF panels
-   ============================================================ */
-
-.rf-panel {
-  grid-column: span 3;
-}
-
-.telemetry {
-  grid-column: span 1;
-}
-
-.panel-title {
+.protocol-card {
+  position: relative;
   display: flex;
-
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-
-  gap: 20px;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
-.panel-title h2 {
-  margin: 0;
+.protocol-card strong {
+  font-family: var(--mono);
+  font-size: 16px;
+  letter-spacing: 0.02em;
 }
 
-.panel-description {
-  margin: 5px 0 0;
-
-  color: #8b949e;
-
-  font-size: 13px;
+.protocol-card small {
+  font-size: 11px;
+  color: var(--text3);
 }
 
-.runtime-badge {
-  padding: 6px 12px;
-
-  background: #30363d;
-
-  border-radius: 6px;
-
-  font-size: 13px;
-
-  white-space: nowrap;
+.protocol-card__codec {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text2);
 }
 
-.runtime-badge.tx-on {
-  background: #238636;
-
-  color: white;
+.protocol-card__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text3);
 }
 
+.protocol-card__dot.ok {
+  background: var(--ok);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 60%, transparent);
+}
 
-/* ============================================================
-   RF Device discovery
-   ============================================================ */
+.protocol-card__dot.warn {
+  background: var(--warn);
+}
+
+.protocol-card:hover:not(:disabled) {
+  border-color: var(--border2);
+  background: var(--bg3);
+}
+
+.protocol-card.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.protocol-card.active strong {
+  color: var(--accent);
+}
+
+.protocol-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.protocol-config h3 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+/* ── RF device cards ── */
 
 .rf-device-grid {
-  margin-top: 20px;
-
   display: grid;
-
-  grid-template-columns:
-    repeat(
-      auto-fit,
-      minmax(320px, 420px)
-    );
-
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
 }
 
 .rf-device-card {
-  width: 100%;
-  min-height: 0;
-
-  padding: 18px;
-
-  display: block;
-
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
   text-align: left;
-
-  background: #0d1117;
-
-  color: #e6edf3;
-
-  border: 1px solid #30363d;
-  border-radius: 8px;
-
   cursor: pointer;
-
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.15s ease;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .rf-device-card:hover:not(:disabled) {
-  background: #111820;
-
-  border-color: #58a6ff;
-
-  transform: translateY(-1px);
+  border-color: var(--border2);
 }
 
 .rf-device-card.selected {
-  background: #13233a;
-
-  border-color: #58a6ff;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .rf-device-card.error {
-  border-color: #da3633;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 }
 
 .rf-device-card:disabled {
-  opacity: 0.55;
-
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .rf-device-card-header {
   display: flex;
-
   align-items: flex-start;
   justify-content: space-between;
-
-  gap: 16px;
+  gap: 10px;
 }
 
 .rf-device-name {
-  color: #e6edf3;
-
-  font-size: 19px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .rf-device-backend {
-  margin-top: 5px;
-
-  color: #8b949e;
-
-  font-size: 13px;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
 }
 
 .rf-device-status {
-  flex-shrink: 0;
-
-  padding: 5px 9px;
-
-  border-radius: 5px;
-
-  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--border);
+  color: var(--text2);
 }
 
 .rf-device-status.ready {
-  color: #56d364;
-
-  background:
-    rgba(46, 160, 67, 0.12);
-
-  border: 1px solid #238636;
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
 
 .rf-device-status.error {
-  color: #ff7b72;
-
-  background:
-    rgba(248, 81, 73, 0.12);
-
-  border: 1px solid #da3633;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .rf-device-details {
-  margin-top: 18px;
-
-  padding-top: 16px;
-
-  border-top: 1px solid #30363d;
-
   display: grid;
-
-  grid-template-columns:
-    repeat(2, minmax(0, 1fr));
-
-  column-gap: 28px;
-  row-gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
 }
 
 .rf-device-detail {
-  min-width: 0;
-
   display: flex;
-
-  align-items: center;
   justify-content: space-between;
-
-  gap: 12px;
+  gap: 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--sep);
+  font-size: 12px;
 }
 
 .rf-device-detail span {
-  color: #8b949e;
-
-  font-size: 13px;
+  color: var(--text3);
 }
 
 .rf-device-detail strong {
-  min-width: 0;
-
-  color: #e6edf3;
-
-  font-size: 13px;
+  font-family: var(--mono);
+  font-size: 11.5px;
   font-weight: 600;
-
-  text-align: right;
-
-  overflow-wrap: anywhere;
-}
-
-.rf-device-selected {
-  margin-top: 16px;
-
-  padding-top: 12px;
-
-  border-top: 1px solid #30363d;
-
-  color: #58a6ff;
-
-  font-size: 11px;
-  font-weight: 700;
-
-  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rf-device-probe-error {
-  margin-top: 14px;
-
-  padding: 10px;
-
-  color: #ff7b72;
-
-  background:
-    rgba(248, 81, 73, 0.1);
-
-  border: 1px solid #da3633;
-  border-radius: 6px;
-
-  font-size: 12px;
-
-  overflow-wrap: anywhere;
-}
-
-
-/* ============================================================
-   Protocol selection
-   ============================================================ */
-
-.protocol-selector {
-  margin-top: 22px;
-
-  display: grid;
-
-  grid-template-columns:
-    repeat(4, 1fr);
-
-  gap: 12px;
-}
-
-.protocol-card {
-  min-height: 82px;
-
-  padding: 14px 16px;
-
-  display: flex;
-  flex-direction: column;
-
-  align-items: flex-start;
-  justify-content: center;
-
-  gap: 5px;
-
-  background: #0d1117;
-
-  border: 1px solid #30363d;
+  max-height: 120px;
+  overflow: auto;
+  padding: 8px 10px;
   border-radius: 8px;
-
-  color: #e6edf3;
-
-  cursor: pointer;
-
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: pre-wrap;
 }
 
-.protocol-card strong {
-  font-size: 18px;
-}
-
-.protocol-card small {
-  color: #8b949e;
-}
-
-.protocol-card:hover:not(:disabled) {
-  border-color: #58a6ff;
-}
-
-.protocol-card.active {
-  background: #13233a;
-
-  border-color: #58a6ff;
-}
-
-.protocol-card.active strong {
-  color: #58a6ff;
-}
-
-.protocol-card:disabled {
-  opacity: 0.55;
-
-  cursor: not-allowed;
-}
-
-
-/* ============================================================
-   Protocol configuration
-   ============================================================ */
-
-.protocol-config {
-  margin-top: 24px;
-
-  padding-top: 20px;
-
-  border-top: 1px solid #30363d;
-}
-
-.protocol-config h3 {
-  margin: 0 0 18px;
-
-  font-size: 16px;
-}
-
-.protocol-disabled {
-  margin-top: 24px;
-
-  padding: 28px;
-
-  text-align: center;
-
-  color: #8b949e;
-
-  background: #0d1117;
-
-  border: 1px dashed #30363d;
-  border-radius: 8px;
-}
-
-.form-grid {
-  display: grid;
-
-  grid-template-columns:
-    repeat(3, 1fr);
-
-  gap: 16px;
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-
-  gap: 7px;
-
-  color: #8b949e;
-}
-
-input,
-select {
-  width: 100%;
-
-  padding: 10px;
-
-  background: #0d1117;
-
-  color: #e6edf3;
-
-  border: 1px solid #30363d;
-  border-radius: 6px;
-}
-
-input:focus,
-select:focus {
-  outline: none;
-
-  border-color: #58a6ff;
-}
-
-
-/* ============================================================
-   Runtime messages
-   ============================================================ */
-
-.runtime-message,
-.runtime-error {
-  margin-top: 18px;
-
-  padding: 10px 12px;
-
-  border-radius: 6px;
-
-  font-size: 13px;
-}
-
-.runtime-message {
-  background:
-    rgba(46, 160, 67, 0.12);
-
-  border: 1px solid #238636;
-
-  color: #56d364;
-}
-
-.runtime-error {
-  background:
-    rgba(248, 81, 73, 0.12);
-
-  border: 1px solid #da3633;
-
-  color: #ff7b72;
-}
-
-
-/* ============================================================
-   Buttons
-   ============================================================ */
-
-.buttons {
-  margin-top: 22px;
-
-  display: flex;
-
-  gap: 10px;
-}
-
-button {
-  padding: 10px 18px;
-
-  background: #21262d;
-
-  color: #e6edf3;
-
-  border: 1px solid #30363d;
-  border-radius: 6px;
-
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  background: #30363d;
-}
-
-button.start {
-  background: #238636;
-
-  border-color: #2ea043;
-}
-
-button.start:hover:not(:disabled) {
-  background: #2ea043;
-}
-
-button:disabled {
-  opacity: 0.4;
-
-  cursor: not-allowed;
-}
-
-
-/* ============================================================
-   Telemetry
-   ============================================================ */
-
-.telemetry h2 {
-  margin-top: 0;
-}
-
-.telemetry > div {
-  padding: 12px 0;
-
-  display: flex;
-
-  justify-content: space-between;
-
-  gap: 20px;
-
-  border-bottom:
-    1px solid #30363d;
-}
-
-.telemetry > div:last-child {
-  border-bottom: none;
-}
-
-.telemetry span {
-  color: #8b949e;
-}
-
-.telemetry strong {
-  text-align: right;
-}
-
-.tx-value {
-  color: #56d364;
-}
-
-
-/* ============================================================
-   Responsive
-   ============================================================ */
-
-@media (max-width: 1100px) {
-  .dashboard {
-    grid-template-columns:
-      repeat(2, 1fr);
-  }
-
-  .rf-panel,
-  .telemetry {
-    grid-column: span 2;
-  }
-
-  .protocol-selector {
-    grid-template-columns:
-      repeat(2, 1fr);
-  }
-
-  .form-grid {
-    grid-template-columns:
-      repeat(2, 1fr);
-  }
-
-  .rf-device-grid {
-    grid-template-columns:
-      repeat(
-        auto-fit,
-        minmax(300px, 1fr)
-      );
-  }
-}
-
-
-@media (max-width: 650px) {
-  .header {
-    height: auto;
-
-    padding: 20px;
-
-    align-items: flex-start;
-
-    gap: 20px;
-
-    flex-direction: column;
-  }
-
-  .dashboard {
-    padding: 20px;
-
-    grid-template-columns: 1fr;
-  }
-
-  .card,
-  .rf-panel,
-  .telemetry {
-    grid-column: span 1;
-  }
-
-  .protocol-selector {
-    grid-template-columns: 1fr;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .rf-device-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .rf-device-details {
-    grid-template-columns: 1fr;
-  }
-
-  .panel-title {
-    align-items: stretch;
-
-    flex-direction: column;
-  }
-
-  .panel-title button {
-    width: 100%;
-  }
-
-  .buttons {
-    flex-wrap: wrap;
-  }
+.rf-device-selected {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }

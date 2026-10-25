@@ -5,105 +5,50 @@ type FMConfigProps = {
   onChange: (value: FMConfigType) => void;
 };
 
-function FMConfig({
-  value,
-  onChange,
-}: FMConfigProps) {
+function FMConfig({ value, onChange }: FMConfigProps) {
+  const set = <K extends keyof FMConfigType>(key: K, next: FMConfigType[K]) => onChange({ ...value, [key]: next });
+
   return (
     <div className="protocol-config">
-      <h3>Analog FM Configuration</h3>
-
+      <h3>Analog FM</h3>
       <div className="form-grid">
         <label>
-          Frequency
-          <input
-            value={value.frequency}
-            onChange={(event) =>
-              onChange({
-                ...value,
-                frequency: event.target.value,
-              })
-            }
-          />
+          Frequency (MHz)
+          <input value={value.frequency} inputMode="decimal" onChange={(e) => set("frequency", e.target.value)} />
         </label>
-
         <label>
-          Channel Spacing
-          <select
-            value={value.channelSpacing}
-            onChange={(event) =>
-              onChange({
-                ...value,
-                channelSpacing:
-                  event.target.value as "12.5" | "25",
-              })
-            }
-          >
+          Channel spacing
+          <select value={value.channelSpacing} onChange={(e) => set("channelSpacing", e.target.value as "12.5" | "25")}>
             <option value="12.5">12.5 kHz</option>
             <option value="25">25 kHz</option>
           </select>
         </label>
-
         <label>
           Deviation
-          <select
-            value={value.deviation}
-            onChange={(event) =>
-              onChange({
-                ...value,
-                deviation:
-                  event.target.value as "2.5" | "5",
-              })
-            }
-          >
+          <select value={value.deviation} onChange={(e) => set("deviation", e.target.value as "2.5" | "5")}>
             <option value="2.5">2.5 kHz</option>
             <option value="5">5.0 kHz</option>
           </select>
         </label>
-
         <label>
-          TX CTCSS
-          <input
-            value={value.txCtcss}
-            placeholder="None"
-            onChange={(event) =>
-              onChange({
-                ...value,
-                txCtcss: event.target.value,
-              })
-            }
-          />
+          TX CTCSS (Hz)
+          <input value={value.txCtcss} placeholder="none" onChange={(e) => set("txCtcss", e.target.value)} />
         </label>
-
         <label>
-          RX CTCSS
-          <input
-            value={value.rxCtcss}
-            placeholder="None"
-            onChange={(event) =>
-              onChange({
-                ...value,
-                rxCtcss: event.target.value,
-              })
-            }
-          />
+          RX CTCSS (Hz)
+          <input value={value.rxCtcss} placeholder="none" onChange={(e) => set("rxCtcss", e.target.value)} />
         </label>
-
         <label>
           Pre-emphasis
-          <select
-            value={value.preEmphasis}
-            onChange={(event) =>
-              onChange({
-                ...value,
-                preEmphasis:
-                  event.target.value as "on" | "off",
-              })
-            }
-          >
+          <select value={value.preEmphasis} onChange={(e) => set("preEmphasis", e.target.value as "on" | "off")}>
             <option value="on">On</option>
             <option value="off">Off</option>
           </select>
+        </label>
+        <label>
+          Source audio gain
+          <input value={value.audioGain} inputMode="decimal" onChange={(e) => set("audioGain", e.target.value)} />
+          <span className="field-hint">Linear factor before MMDVM-Host (1.0 = unchanged).</span>
         </label>
       </div>
     </div>

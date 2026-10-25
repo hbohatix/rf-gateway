@@ -6,6 +6,8 @@ import {
 import "./CalibrationPanel.css";
 
 
+import { API_BASE_URL } from "../lib/api";
+
 type CalibrationPanelProps = {
   open: boolean;
 
@@ -76,8 +78,7 @@ type TestState =
   | "error";
 
 
-const API_BASE_URL =
-  `${window.location.protocol}//${window.location.hostname}:8000`;
+
 
 
 function formatFrequency(

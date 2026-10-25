@@ -119,7 +119,7 @@ type LiveAudioStatus = {
   source_id: string;
 
   source_type:
-    "broadcastify_live_audio" | "direct_audio";
+    "broadcastify_live_audio" | "direct_audio" | "remote_sdr";
 
   feed_id: number | null;
 
@@ -165,6 +165,10 @@ type LiveAudioStatus = {
 
   gate?:
     LiveAudioGateStatus
+    | null;
+
+  voice?:
+    LiveAudioP25Status
     | null;
 
   p25?:
@@ -272,10 +276,23 @@ type PreflightCheck =
   | "audio_bridge";
 
 
+type SourceUrlKind = "auto" | "direct_audio" | "remote_sdr";
+
+
+const SOURCE_URL_PLACEHOLDERS: Record<SourceUrlKind, string> = {
+  auto: "https://www.broadcastify.com/calls/playlists/?uuid=...",
+  direct_audio: "http://192.168.1.50:8000/live.mp3",
+  remote_sdr: "rtl_tcp://192.168.1.50:1234?freq=145500000&mod=nfm",
+};
+
+
 const PROTOCOLS:
   Protocol[] = [
     "fm",
     "dmr",
+    "ysf",
+    "dstar",
+    "nxdn",
     "p25",
     "tetra",
   ];
@@ -317,7 +334,9 @@ function getSourceSelectionLabel(source: Source): string {
       ? "LEGACY Live Audio / website sign-in"
       : source.type === "direct_audio"
         ? "Direct HTTP Audio"
-        : source.type;
+        : source.type === "remote_sdr"
+          ? "Remote SDR"
+          : source.type;
   return `${getSourceDisplayName(source)} — ${suffix}`;
 }
 
@@ -951,7 +970,7 @@ function RoutesPanel({
   const [editGroups, setEditGroups] = useState("");
   const [editSourceId, setEditSourceId] = useState("");
   const [editSourceUrl, setEditSourceUrl] = useState("");
-  const [editSourceKind, setEditSourceKind] = useState<"auto" | "direct_audio">("auto");
+  const [editSourceKind, setEditSourceKind] = useState<SourceUrlKind>("auto");
   const [editRouteName, setEditRouteName] = useState("");
   const [editDeviceId, setEditDeviceId] = useState("");
   const [editProtocol, setEditProtocol] = useState<Protocol>("p25");
@@ -961,7 +980,7 @@ function RoutesPanel({
   const [playlistUuid, setPlaylistUuid] = useState("");
   const [callsGroups, setCallsGroups] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [sourceKind, setSourceKind] = useState<"auto" | "direct_audio">("auto");
+  const [sourceKind, setSourceKind] = useState<SourceUrlKind>("auto");
   const [routeName, setRouteName] = useState("");
   const [startNow, setStartNow] = useState(false);
 
@@ -2101,18 +2120,17 @@ function RoutesPanel({
               <span>Source URL</span>
               <select
                 value={sourceKind}
-                onChange={(event) => setSourceKind(event.target.value as "auto" | "direct_audio")}
+                onChange={(event) => setSourceKind(event.target.value as SourceUrlKind)}
               >
                 <option value="auto">Broadcastify URL (Calls playlist preferred)</option>
                 <option value="direct_audio">Direct HTTP audio (authorized)</option>
+                <option value="remote_sdr">Remote SDR (rtl_tcp / KiwiSDR / SDR audio)</option>
               </select>
               <input
                 type="url"
                 value={sourceUrl}
                 onChange={(event) => setSourceUrl(event.target.value)}
-                placeholder={sourceKind === "direct_audio"
-                  ? "http://192.168.1.50:8000/live.mp3"
-                  : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
+                placeholder={SOURCE_URL_PLACEHOLDERS[sourceKind]}
               />
             </label>
           )}
@@ -2277,7 +2295,8 @@ function RoutesPanel({
 
               const isLiveAudio =
                 source?.type === "broadcastify_live_audio"
-                || source?.type === "direct_audio";
+                || source?.type === "direct_audio"
+                || source?.type === "remote_sdr";
               const legacyLiveSource = source?.type === "broadcastify_live_audio";
               const legacyLiveBlocked = legacyLiveSource &&
                 runtime?.blocked_reason === "source_stream_unavailable";
@@ -2557,14 +2576,13 @@ function RoutesPanel({
                                 <label className="route-edit__wide">
                                   <span>Source URL</span>
                                   <select value={editSourceKind}
-                                    onChange={(event) => setEditSourceKind(event.target.value as "auto" | "direct_audio")}>
+                                    onChange={(event) => setEditSourceKind(event.target.value as SourceUrlKind)}>
                                     <option value="auto">Broadcastify (detect)</option>
                                     <option value="direct_audio">Direct HTTP audio</option>
+                                    <option value="remote_sdr">Remote SDR</option>
                                   </select>
                                   <input type="url" value={editSourceUrl}
-                                    placeholder={editSourceKind === "direct_audio"
-                                      ? "http://192.168.1.50:8000/live.mp3"
-                                      : "https://www.broadcastify.com/calls/playlists/?uuid=..."}
+                                    placeholder={SOURCE_URL_PLACEHOLDERS[editSourceKind]}
                                     onChange={(event) => setEditSourceUrl(event.target.value)} />
                                 </label>
                               )}
@@ -2732,7 +2750,7 @@ function RoutesPanel({
                               <div className="route-worker__stats">
                                 <div>
                                   <span>
-                                    {source?.type === "direct_audio" ? "INPUT" : "Feed ID"}
+                                    {source?.type === "direct_audio" || source?.type === "remote_sdr" ? "INPUT" : "Feed ID"}
                                   </span>
 
                                   <strong>
@@ -2783,13 +2801,12 @@ function RoutesPanel({
 
                                 <div>
                                   <span>
-                                    P25 Records
+                                    {(route.protocol ?? "p25").toUpperCase()} Records
                                   </span>
 
                                   <strong>
                                     {
-                                      liveAudio
-                                        ?.p25
+                                      (liveAudio?.voice ?? liveAudio?.p25)
                                         ?.network_records_sent
                                       ??
                                       0
@@ -2937,7 +2954,7 @@ function RoutesPanel({
                                 </div>
                                 <div>
                                   <span>Last P25 records</span>
-                                  <strong>{isLiveAudio ? (liveAudio?.p25?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
+                                  <strong>{isLiveAudio ? ((liveAudio?.voice ?? liveAudio?.p25)?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
                                 </div>
                               </div>
 
@@ -2974,7 +2991,7 @@ function RoutesPanel({
                             <div className="route-worker__stats">
                               <div>
                                 <span>Last network records</span>
-                                <strong>{isLiveAudio ? (liveAudio?.p25?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
+                                <strong>{isLiveAudio ? ((liveAudio?.voice ?? liveAudio?.p25)?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
                               </div>
                               <div>
                                 <span>Last UDP datagrams</span>

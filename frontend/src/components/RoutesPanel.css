@@ -11,13 +11,13 @@
   background:
     linear-gradient(
       180deg,
-      rgba(18, 28, 44, 0.98) 0%,
-      rgba(15, 24, 38, 0.98) 100%
+      var(--bg3) 0%,
+      var(--bg2) 100%
     );
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.15);
+    color-mix(in srgb, var(--text2) 15%, transparent);
 
   border-radius: 12px;
 
@@ -38,7 +38,7 @@
 .routes-panel__header h2 {
   margin: 0;
 
-  color: #f8fafc;
+  color: var(--accent2);
 
   font-size: 18px;
   font-weight: 700;
@@ -52,7 +52,7 @@
     0
     0;
 
-  color: #8da0b8;
+  color: var(--text2);
 
   font-size: 12px;
   line-height: 1.4;
@@ -79,14 +79,14 @@
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.18);
+    color-mix(in srgb, var(--text2) 18%, transparent);
 
   border-radius: 6px;
 
   background:
-    rgba(30, 41, 59, 0.72);
+    color-mix(in srgb, var(--bg3) 72%, transparent);
 
-  color: #cbd5e1;
+  color: var(--text);
 
   font: inherit;
 
@@ -106,12 +106,12 @@
 
 .routes-panel button:hover:not(:disabled) {
   background:
-    rgba(51, 65, 85, 0.92);
+    var(--bg4);
 
   border-color:
-    rgba(148, 163, 184, 0.32);
+    color-mix(in srgb, var(--text2) 32%, transparent);
 
-  color: #f8fafc;
+  color: var(--accent2);
 }
 
 
@@ -134,13 +134,13 @@
   min-width: 92px;
 
   background:
-    rgba(21, 128, 61, 0.82) !important;
+    color-mix(in srgb, var(--bg3) 82%, transparent) !important;
 
   border-color:
-    rgba(74, 222, 128, 0.34) !important;
+    color-mix(in srgb, var(--accent) 34%, transparent) !important;
 
   color:
-    #f0fdf4 !important;
+    var(--accent) !important;
 
   white-space: nowrap;
 }
@@ -148,10 +148,10 @@
 
 .routes-panel__add:hover:not(:disabled) {
   background:
-    rgba(22, 163, 74, 0.96) !important;
+    color-mix(in srgb, var(--accent) 96%, transparent) !important;
 
   border-color:
-    rgba(74, 222, 128, 0.5) !important;
+    color-mix(in srgb, var(--accent) 50%, transparent) !important;
 }
 
 
@@ -161,15 +161,15 @@
     12px;
 
   background:
-    rgba(127, 29, 29, 0.24);
+    color-mix(in srgb, var(--danger) 24%, transparent);
 
   border:
     1px solid
-    rgba(248, 113, 113, 0.3);
+    color-mix(in srgb, var(--danger) 30%, transparent);
 
   border-radius: 7px;
 
-  color: #fca5a5;
+  color: var(--danger);
 
   font-size: 12px;
   line-height: 1.45;
@@ -188,14 +188,14 @@
 
   border:
     1px dashed
-    rgba(148, 163, 184, 0.18);
+    color-mix(in srgb, var(--text2) 18%, transparent);
 
   border-radius: 9px;
 
   background:
-    rgba(15, 23, 42, 0.28);
+    color-mix(in srgb, var(--bg3) 28%, transparent);
 
-  color: #7f8b9d;
+  color: var(--text2);
 
   font-size: 12px;
   text-align: center;
@@ -227,11 +227,11 @@
   padding: 15px;
 
   background:
-    rgba(10, 18, 30, 0.64);
+    color-mix(in srgb, var(--bg3) 64%, transparent);
 
   border:
     1px solid
-    rgba(96, 165, 250, 0.18);
+    color-mix(in srgb, var(--accent2) 18%, transparent);
 
   border-radius: 9px;
 }
@@ -249,7 +249,7 @@
 
 
 .route-create label > span {
-  color: #78879a;
+  color: var(--text2);
 
   font-size: 10px;
   font-weight: 700;
@@ -274,14 +274,14 @@
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.2);
+    color-mix(in srgb, var(--text2) 20%, transparent);
 
   border-radius: 7px;
 
   background-color:
-    rgba(22, 32, 48, 0.96);
+    var(--bg3);
 
-  color: #d9e3ef;
+  color: var(--accent2);
 
   font: inherit;
 
@@ -301,31 +301,31 @@
 
 .route-create select:hover {
   border-color:
-    rgba(148, 163, 184, 0.34);
+    color-mix(in srgb, var(--text2) 34%, transparent);
 
   background-color:
-    rgba(27, 39, 58, 0.98);
+    var(--bg3);
 }
 
 
 .route-create select:focus,
 .route-create input:not([type="checkbox"]):focus {
   border-color:
-    rgba(96, 165, 250, 0.55);
+    color-mix(in srgb, var(--accent2) 55%, transparent);
 
   box-shadow:
     0
     0
     0
     2px
-    rgba(59, 130, 246, 0.1);
+    color-mix(in srgb, var(--accent2) 10%, transparent);
 }
 
 
 .route-create select option {
-  background: #111827;
+  background: var(--bg2);
 
-  color: #dbe5f1;
+  color: var(--accent2);
 }
 
 
@@ -335,7 +335,7 @@
 
 .route-create__wide small {
   font-size: 11px;
-  color: #8aa0b8;
+  color: var(--text2);
   line-height: 1.4;
 }
 
@@ -348,11 +348,11 @@
 .route-create__start input {
   width: 16px;
   height: 16px;
-  accent-color: #22c55e;
+  accent-color: var(--accent);
 }
 
 .route-create label.route-create__start > span {
-  color: #d9e3ef;
+  color: var(--accent2);
   font-size: 12px;
   text-transform: none;
   letter-spacing: 0;
@@ -375,30 +375,30 @@
   min-width: 130px;
 
   background:
-    rgba(21, 128, 61, 0.82) !important;
+    color-mix(in srgb, var(--bg3) 82%, transparent) !important;
 
   border-color:
-    rgba(74, 222, 128, 0.32) !important;
+    color-mix(in srgb, var(--accent) 32%, transparent) !important;
 
   color:
-    #ecfdf5 !important;
+    var(--accent) !important;
 }
 
 
 .route-create__submit:hover:not(:disabled) {
   background:
-    rgba(22, 163, 74, 0.96) !important;
+    color-mix(in srgb, var(--accent) 96%, transparent) !important;
 
   border-color:
-    rgba(74, 222, 128, 0.5) !important;
+    color-mix(in srgb, var(--accent) 50%, transparent) !important;
 }
 
 
 .route-edit {
-  border: 1px solid rgba(96, 165, 250, 0.22);
+  border: 1px solid color-mix(in srgb, var(--accent2) 22%, transparent);
   border-radius: 9px;
   padding: 14px;
-  background: rgba(12, 24, 41, 0.8);
+  background: color-mix(in srgb, var(--bg3) 80%, transparent);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -413,13 +413,13 @@
 }
 
 .route-edit__heading strong {
-  color: #d9e3ef;
+  color: var(--accent2);
   font-size: 13px;
 }
 
 .route-edit__heading span,
 .route-edit small {
-  color: #94a3b8;
+  color: var(--text2);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -444,7 +444,7 @@
 .route-edit label > span {
   font-size: 10px;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text2);
   text-transform: uppercase;
 }
 
@@ -454,11 +454,11 @@
   height: 36px;
   padding: 0 11px;
   box-sizing: border-box;
-  background: rgba(22, 32, 48, 0.96);
-  color: #d9e3ef;
+  background: var(--bg3);
+  color: var(--accent2);
   font: inherit;
   font-size: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.23);
+  border: 1px solid color-mix(in srgb, var(--text2) 23%, transparent);
   border-radius: 7px;
 }
 
@@ -500,11 +500,11 @@
   padding: 14px;
 
   background:
-    rgba(10, 18, 30, 0.58);
+    color-mix(in srgb, var(--bg3) 58%, transparent);
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.12);
+    color-mix(in srgb, var(--text2) 12%, transparent);
 
   border-radius: 9px;
 
@@ -516,10 +516,10 @@
 
 .route-card:hover {
   background:
-    rgba(14, 24, 39, 0.82);
+    color-mix(in srgb, var(--bg3) 82%, transparent);
 
   border-color:
-    rgba(148, 163, 184, 0.2);
+    color-mix(in srgb, var(--text2) 20%, transparent);
 }
 
 
@@ -549,7 +549,7 @@
 
   margin: 0;
 
-  color: #edf2f7;
+  color: var(--text);
 
   font-size: 14px;
   font-weight: 700;
@@ -570,7 +570,7 @@
 
   margin-top: 6px;
 
-  color: #8292a6;
+  color: var(--text2);
 
   font-size: 11px;
   line-height: 1.4;
@@ -596,7 +596,7 @@
   border-radius: 50%;
 
   background:
-    rgba(148, 163, 184, 0.45);
+    color-mix(in srgb, var(--text2) 45%, transparent);
 
   transform:
     translateY(
@@ -645,25 +645,25 @@
 
 .route-card__badge.enabled {
   background:
-    rgba(34, 197, 94, 0.12);
+    color-mix(in srgb, var(--accent) 12%, transparent);
 
   border:
     1px solid
-    rgba(74, 222, 128, 0.22);
+    color-mix(in srgb, var(--accent) 22%, transparent);
 
-  color: #6ee7a0;
+  color: var(--accent);
 }
 
 
 .route-card__badge.disabled {
   background:
-    rgba(100, 116, 139, 0.14);
+    color-mix(in srgb, var(--text2) 14%, transparent);
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.17);
+    color-mix(in srgb, var(--text2) 17%, transparent);
 
-  color: #9ca8b8;
+  color: var(--text2);
 }
 
 
@@ -677,11 +677,11 @@
   padding: 11px;
 
   background:
-    rgba(3, 10, 20, 0.42);
+    color-mix(in srgb, var(--bg3) 42%, transparent);
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.09);
+    color-mix(in srgb, var(--text2) 9%, transparent);
 
   border-radius: 7px;
 }
@@ -698,7 +698,7 @@
 
 
 .route-worker__header > span {
-  color: #66768b;
+  color: var(--text3);
 
   font-size: 9px;
   font-weight: 750;
@@ -734,49 +734,49 @@
 
 .route-worker__state.stopped {
   background:
-    rgba(100, 116, 139, 0.12);
+    color-mix(in srgb, var(--text2) 12%, transparent);
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.17);
+    color-mix(in srgb, var(--text2) 17%, transparent);
 
-  color: #8492a6;
+  color: var(--text2);
 }
 
 
 .route-worker__state.waiting {
   background:
-    rgba(245, 158, 11, 0.11);
+    color-mix(in srgb, var(--warn) 11%, transparent);
 
   border:
     1px solid
-    rgba(251, 191, 36, 0.24);
+    color-mix(in srgb, var(--warn) 24%, transparent);
 
-  color: #f6c760;
+  color: var(--warn);
 }
 
 
 .route-worker__state.running {
   background:
-    rgba(34, 197, 94, 0.11);
+    color-mix(in srgb, var(--accent) 11%, transparent);
 
   border:
     1px solid
-    rgba(74, 222, 128, 0.24);
+    color-mix(in srgb, var(--accent) 24%, transparent);
 
-  color: #6ee7a0;
+  color: var(--accent);
 }
 
 
 .route-worker__state.error {
   background:
-    rgba(127, 29, 29, 0.28);
+    color-mix(in srgb, var(--danger) 28%, transparent);
 
   border:
     1px solid
-    rgba(248, 113, 113, 0.28);
+    color-mix(in srgb, var(--danger) 28%, transparent);
 
-  color: #fca5a5;
+  color: var(--danger);
 }
 
 
@@ -810,18 +810,18 @@
     9px;
 
   background:
-    rgba(15, 23, 42, 0.44);
+    color-mix(in srgb, var(--bg3) 44%, transparent);
 
   border:
     1px solid
-    rgba(148, 163, 184, 0.07);
+    color-mix(in srgb, var(--text2) 7%, transparent);
 
   border-radius: 6px;
 }
 
 
 .route-worker__stats span {
-  color: #64748b;
+  color: var(--text3);
 
   font-size: 9px;
   font-weight: 700;
@@ -833,7 +833,7 @@
 
 
 .route-worker__stats strong {
-  color: #d5e0ec;
+  color: var(--text);
 
   font-size: 12px;
   font-weight: 650;
@@ -841,7 +841,7 @@
 
 
 .route-worker__hint {
-  color: #94a3b8;
+  color: var(--text2);
   font-size: 10px;
   line-height: 1.5;
 }
@@ -852,15 +852,15 @@
     10px;
 
   background:
-    rgba(127, 29, 29, 0.22);
+    color-mix(in srgb, var(--danger) 22%, transparent);
 
   border:
     1px solid
-    rgba(248, 113, 113, 0.24);
+    color-mix(in srgb, var(--danger) 24%, transparent);
 
   border-radius: 6px;
 
-  color: #fca5a5;
+  color: var(--danger);
 
   font-size: 11px;
   line-height: 1.4;
@@ -894,54 +894,54 @@
 
 .route-card__worker-start:not(:disabled) {
   background:
-    rgba(21, 128, 61, 0.18);
+    color-mix(in srgb, var(--bg3) 18%, transparent);
 
   border-color:
-    rgba(74, 222, 128, 0.2);
+    color-mix(in srgb, var(--accent) 20%, transparent);
 
-  color: #9ae6b4;
+  color: var(--accent);
 }
 
 
 .route-card__worker-start:hover:not(:disabled) {
   background:
-    rgba(22, 163, 74, 0.3);
+    color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 
 .route-card__worker-stop:not(:disabled) {
   background:
-    rgba(146, 64, 14, 0.15);
+    color-mix(in srgb, var(--warn) 15%, transparent);
 
   border-color:
-    rgba(251, 191, 36, 0.18);
+    color-mix(in srgb, var(--warn) 18%, transparent);
 
-  color: #facc6b;
+  color: var(--warn);
 }
 
 
 .route-card__worker-stop:hover:not(:disabled) {
   background:
-    rgba(180, 83, 9, 0.26);
+    color-mix(in srgb, var(--warn) 26%, transparent);
 }
 
 
 .route-card__delete:not(:disabled) {
   border-color:
-    rgba(248, 113, 113, 0.18);
+    color-mix(in srgb, var(--danger) 18%, transparent);
 
-  color: #fca5a5;
+  color: var(--danger);
 }
 
 
 .route-card__delete:hover:not(:disabled) {
   background:
-    rgba(127, 29, 29, 0.32);
+    color-mix(in srgb, var(--danger) 32%, transparent);
 
   border-color:
-    rgba(248, 113, 113, 0.32);
+    color-mix(in srgb, var(--danger) 32%, transparent);
 
-  color: #fecaca;
+  color: var(--danger);
 }
 
 
@@ -1124,15 +1124,86 @@
   justify-content: space-between;
   gap: 10px;
   text-align: left;
-  border: 1px solid rgba(148, 163, 184, .25);
+  border: 1px solid color-mix(in srgb, var(--text2) 25%, transparent);
   border-radius: 6px;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, .8);
-  color: #e2e8f0;
+  background: color-mix(in srgb, var(--bg3) 80%, transparent);
+  color: var(--text);
 }
-.calls-catalog__item:hover { border-color: #34d399; }
+.calls-catalog__item:hover { border-color: var(--accent); }
 .calls-catalog__item small { opacity: .75; white-space: nowrap; }
 @media (max-width: 680px) {
   .calls-catalog__search { grid-template-columns: 1fr; }
   .calls-catalog__item { flex-direction: column; align-items: flex-start; }
+}
+
+
+/* ── FlowStation look (theme tokens) ───────────────────────────────────── */
+
+.routes-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  box-shadow: var(--elev-1), var(--hair);
+}
+
+.routes-panel__header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.routes-panel__header h2 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+.routes-panel__header p {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.routes-panel button {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  border-radius: var(--r-ctrl);
+  background: var(--bg3);
+  border-color: var(--border2);
+  color: var(--text2);
+}
+
+.routes-panel button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent2) 8%, var(--bg3));
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
+
+.routes-panel .routes-panel__add,
+.routes-panel .route-create__submit,
+.routes-panel .route-card__worker-start {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+.routes-panel .route-card__delete:hover:not(:disabled),
+.routes-panel .route-card__worker-stop:hover:not(:disabled) {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+  background: color-mix(in srgb, var(--danger) 8%, transparent) !important;
+}
+
+.routes-panel input,
+.routes-panel select,
+.routes-panel textarea {
+  background: var(--bg3);
+  border-color: var(--border2);
+  color: var(--text);
+}
+
+.route-card__title-row h3 {
+  font-family: var(--mono);
+  color: var(--text);
 }
