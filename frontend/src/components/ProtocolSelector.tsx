@@ -2,16 +2,17 @@ import { PROTOCOLS, PROTOCOL_INFO } from "../lib/modes";
 import type { Protocol, VoiceCapabilities } from "../types/radio";
 
 type ProtocolSelectorProps = {
+  protocols?: Protocol[];
   activeProtocol: Protocol | null;
   disabled: boolean;
   onToggle: (protocol: Protocol) => void;
   capabilities?: VoiceCapabilities | null;
 };
 
-function ProtocolSelector({ activeProtocol, disabled, onToggle, capabilities }: ProtocolSelectorProps) {
+function ProtocolSelector({ protocols = PROTOCOLS, activeProtocol, disabled, onToggle, capabilities }: ProtocolSelectorProps) {
   return (
     <div className="protocol-selector">
-      {PROTOCOLS.map((protocol) => {
+      {protocols.map((protocol) => {
         const info = PROTOCOL_INFO[protocol];
         const capability = capabilities?.[protocol];
         const state = capability?.bridge_state;

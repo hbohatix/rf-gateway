@@ -125,17 +125,75 @@ def speech_like_pcm(seconds: float) -> bytes:
     return struct.pack(f"<{len(samples)}h", *samples)
 
 
+def run_source(source: dict, protocol: str, settings: dict, seconds: float) -> dict:
+    """Run the real route pipeline (Broadcastify / stream / remote SDR) for ``seconds``."""
+    from unittest import mock
+
+    from app import routes
+
+    route = {"id": "loopback-test", "protocol": protocol, "source_id": source["id"], "device_id": "loopback"}
+    print(f"source: {source['name']} ({source['type']}) for {seconds:.0f} s")
+    # Voice sessions read the saved mode; pin it to the settings MMDVM-Host was started with.
+    with mock.patch("app.config_store.mode_config_store.get_mode", lambda name: dict(settings)):
+        routes.start_source_pipeline(route, source)
+        try:
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                time.sleep(5)
+                live = routes.get_live_audio_status(route["id"]) or {}
+                processor = routes.get_processor_status(route["id"]) or {}
+                print(
+                    f"  t+{seconds - (deadline - time.monotonic()):4.0f}s live={live.get('state')} "
+                    f"pcm={live.get('pcm_bytes_received')} tx_starts={live.get('tx_start_count')} "
+                    f"calls={processor.get('calls_observed')} sent={processor.get('calls_completed')} "
+                    f"err={live.get('error') or processor.get('error')}",
+                    flush=True,
+                )
+            live = routes.get_live_audio_status(route["id"]) or {}
+            processor = routes.get_processor_status(route["id"]) or {}
+        finally:
+            routes.stop_source_pipeline(route["id"], clear_queue=True)
+    voice = live.get("voice") or {}
+    return {
+        "network_records_sent": voice.get("network_records_sent", processor.get("calls_completed")),
+        "pcm_frames_received": live.get("pcm_chunks_received"),
+        "ambe_frames_encoded": voice.get("ambe_frames_encoded"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("protocol", choices=sorted(MODE_SETTINGS))
     parser.add_argument("--seconds", type=float, default=3.0)
+    parser.add_argument("--timeslot", type=int, choices=(1, 2), default=None, help="DMR timeslot")
+    parser.add_argument(
+        "--source",
+        help="saved source id (prefix ok): feed its real audio through the route pipeline instead of a test tone; "
+        "uses the saved mode settings",
+    )
     args = parser.parse_args()
 
     if not MMDVM_HOST_BINARY.is_file():
         print(f"MMDVM-Host binary not found: {MMDVM_HOST_BINARY}")
         return 2
 
-    settings = MODE_SETTINGS[args.protocol]
+    source = None
+    if args.source:
+        from app.config_store import mode_config_store
+        from app.sources import load_store as load_sources
+
+        matches = [item for item in load_sources().get("sources", []) if item["id"].startswith(args.source)]
+        if len(matches) != 1:
+            print(f"source {args.source!r}: {len(matches)} matches")
+            return 2
+        source = matches[0]
+        settings = mode_config_store.get_mode(args.protocol) or dict(MODE_SETTINGS[args.protocol])
+        settings = {key: value for key, value in settings.items() if key != "updated_at"}
+    else:
+        settings = dict(MODE_SETTINGS[args.protocol])
+    if args.protocol == "dmr" and args.timeslot:
+        settings["timeslot"] = args.timeslot
+    timeslot = int(settings.get("timeslot", 2))
     callsign = str(settings.get("callsign") or "SP5OPS")
     config = render_mmdvm_host_config(args.protocol, settings, callsign=callsign, device={"backend": "soapysdr"})
     config = config.replace("ModemPort=3334", f"ModemPort={FAKE_MODEM_PORT}")
@@ -163,13 +221,16 @@ def main() -> int:
                 time.sleep(0.2)
             time.sleep(1.0)
 
-            session = create_voice_session(args.protocol, mode_config=settings)
-            pcm = speech_like_pcm(args.seconds)
-            session.start()
-            for offset in range(0, len(pcm), 320):
-                session.feed_pcm(pcm[offset:offset + 320])
-            status = session.end()
-            session.close()
+            if source is not None:
+                status = run_source(source, args.protocol, settings, args.seconds)
+            else:
+                session = create_voice_session(args.protocol, mode_config=settings)
+                pcm = speech_like_pcm(args.seconds)
+                session.start()
+                for offset in range(0, len(pcm), 320):
+                    session.feed_pcm(pcm[offset:offset + 320])
+                status = session.end()
+                session.close()
             time.sleep(2.0)
         finally:
             process.terminate()
@@ -189,7 +250,7 @@ def main() -> int:
     print({key: status.get(key) for key in ("network_records_sent", "ambe_frames_encoded", "pcm_frames_received")})
 
     voice_frames = {
-        "dmr": modem.frames["DMR_DATA2"],
+        "dmr": modem.frames["DMR_DATA1" if timeslot == 1 else "DMR_DATA2"],
         "ysf": modem.frames["YSF_DATA"],
         "dstar": modem.frames["DSTAR_DATA"],
         "p25": modem.frames["P25_LDU"],
@@ -201,6 +262,9 @@ def main() -> int:
     for line in errors:
         print("BER warning:", line.rstrip())
     ok = voice_frames > 0 and not errors
+    if args.protocol == "dmr":
+        # Frames must land in the requested slot only.
+        ok = ok and modem.frames["DMR_DATA2" if timeslot == 1 else "DMR_DATA1"] == 0
     print(f"RESULT {'OK' if ok else 'FAIL'}: {voice_frames} voice frames to the modem; ber_warnings={len(errors)}")
     return 0 if ok else 1
 

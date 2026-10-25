@@ -4,45 +4,42 @@ import "./styles/theme.css";
 import "./App.css";
 
 import CalibrationPanel from "./components/CalibrationPanel";
-import RoutesPanel from "./components/RoutesPanel";
-import SourcesPanel from "./components/SourcesPanel";
-import TelemetryTiles from "./components/TelemetryTiles";
-import VoicePaths from "./components/VoicePaths";
+import DMRConfigForm from "./components/protocols/DMRConfig";
+import DStarConfigForm from "./components/protocols/DStarConfig";
+import FMConfigForm from "./components/protocols/FMConfig";
+import NXDNConfigForm from "./components/protocols/NXDNConfig";
+import P25ConfigForm from "./components/protocols/P25Config";
+import YSFConfigForm from "./components/protocols/YSFConfig";
 import AppShell, { type PageId, type ShellStatus, type Theme } from "./components/shell/AppShell";
 import { I18nProvider } from "./i18n";
 import { API_BASE_URL, apiFetch, errorMessage } from "./lib/api";
 import { formatFrequency, getDeviceDisplayName, loadFromStorage, readStorage, saveToStorage } from "./lib/format";
 import {
   DEFAULT_DMR_CONFIG,
-  DEFAULT_FM_CONFIG,
-  DEFAULT_P25_CONFIG,
-  DEFAULT_TETRA_CONFIG,
-  DEFAULT_YSF_CONFIG,
   DEFAULT_DSTAR_CONFIG,
+  DEFAULT_FM_CONFIG,
   DEFAULT_NXDN_CONFIG,
-  nxdnFromSaved,
-  nxdnPayload,
-  dstarFromSaved,
-  dstarPayload,
+  DEFAULT_P25_CONFIG,
+  DEFAULT_YSF_CONFIG,
   PROTOCOL_INFO,
   STORAGE_KEYS,
   dmrFromSaved,
   dmrPayload,
+  dstarFromSaved,
+  dstarPayload,
   fmFromSaved,
   fmPayload,
-  isProtocol,
+  nxdnFromSaved,
+  nxdnPayload,
   p25FromSaved,
   p25Payload,
-  tetraFromSaved,
-  tetraPayload,
   ysfFromSaved,
   ysfPayload,
 } from "./lib/modes";
-import DashboardPage from "./pages/DashboardPage";
 import DevicesPage from "./pages/DevicesPage";
 import LogsPage from "./pages/LogsPage";
-import ModesPage from "./pages/ModesPage";
 import RemoteSdrPage from "./pages/RemoteSdrPage";
+import TransmitPage from "./pages/TransmitPage";
 import type {
   DMRConfig,
   DStarConfig,
@@ -50,22 +47,23 @@ import type {
   NXDNConfig,
   P25Config,
   Protocol,
-  TETRAConfig,
   VoiceCapabilities,
   YSFConfig,
 } from "./types/radio";
-import type { RFDevice, RFDevicesResponse } from "./types/rfDevice";
-import type { Health, MMDVMStatus, RFStatus, SavedModesResponse } from "./types/runtime";
+import type { RFDevicesResponse } from "./types/rfDevice";
+import type { Health, SavedModesResponse } from "./types/runtime";
+import type { TransmitState } from "./types/transmit";
 
-const PAGES: PageId[] = ["dashboard", "routes", "telemetry", "modes", "devices", "remote_sdr", "sources", "logs"];
+const PAGES: PageId[] = ["transmit", "remote_sdr", "devices", "logs"];
+
+function pageFromHash(): PageId | null {
+  const hash = window.location.hash.replace("#", "");
+  return (PAGES as string[]).includes(hash) ? (hash as PageId) : null;
+}
 
 function initialPage(): PageId {
-  const fromHash = window.location.hash.replace("#", "");
-  if ((PAGES as string[]).includes(fromHash)) {
-    return fromHash as PageId;
-  }
   const stored = readStorage(STORAGE_KEYS.page);
-  return stored && (PAGES as string[]).includes(stored) ? (stored as PageId) : "dashboard";
+  return pageFromHash() ?? ((PAGES as string[]).includes(stored ?? "") ? (stored as PageId) : "transmit");
 }
 
 function initialTheme(): Theme {
@@ -84,7 +82,7 @@ function payloadJson(build: () => object): string | null {
   }
 }
 
-/** Debounced PUT /api/config/modes whenever a protocol form changes. */
+/** Debounced PUT /api/config/modes whenever a mode form changes (the backend applies it on air). */
 function useAutosave(enabled: boolean, body: string | null) {
   useEffect(() => {
     if (!enabled || body === null) {
@@ -106,28 +104,15 @@ function AppContent() {
 
   const [health, setHealth] = useState<Health | null>(null);
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
-
-  const [activeProtocol, setActiveProtocol] = useState<Protocol | null>(() => {
-    const stored = readStorage(STORAGE_KEYS.activeProtocol);
-    return isProtocol(stored) ? stored : null;
-  });
-  const [preferredDeviceId, setSelectedDeviceId] = useState<string | null>(() => readStorage(STORAGE_KEYS.selectedDeviceId));
+  const [transmit, setTransmit] = useState<TransmitState | null>(null);
   const [devicesResponse, setDevicesResponse] = useState<RFDevicesResponse | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(true);
   const [devicesError, setDevicesError] = useState<string | null>(null);
-  const [modeConfigsLoaded, setModeConfigsLoaded] = useState(false);
   const [capabilities, setCapabilities] = useState<VoiceCapabilities | null>(null);
-
-  const [runtimeActive, setRuntimeActive] = useState(false);
-  const [rfTxActive, setRfTxActive] = useState(false);
-  const [mmdvmStatus, setMmdvmStatus] = useState<MMDVMStatus | null>(null);
-  const [runtimeMessage, setRuntimeMessage] = useState<string | null>(null);
-  const [runtimeError, setRuntimeError] = useState<string | null>(null);
-  const [calibrationOpen, setCalibrationOpen] = useState(false);
-
+  const [modeConfigsLoaded, setModeConfigsLoaded] = useState(false);
   const [sourceCount, setSourceCount] = useState(0);
-  const [sourceRefreshKey, setSourceRefreshKey] = useState(0);
-  const [routeCount, setRouteCount] = useState(0);
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
+  const [calibrationError, setCalibrationError] = useState<string | null>(null);
 
   const [fmConfig, setFmConfig] = useState<FMConfig>(() => loadFromStorage(STORAGE_KEYS.fmConfig, DEFAULT_FM_CONFIG));
   const [dmrConfig, setDmrConfig] = useState<DMRConfig>(() => loadFromStorage(STORAGE_KEYS.dmrConfig, DEFAULT_DMR_CONFIG));
@@ -137,27 +122,21 @@ function AppContent() {
     loadFromStorage(STORAGE_KEYS.dstarConfig, DEFAULT_DSTAR_CONFIG),
   );
   const [ysfConfig, setYsfConfig] = useState<YSFConfig>(() => loadFromStorage(STORAGE_KEYS.ysfConfig, DEFAULT_YSF_CONFIG));
-  const [tetraConfig, setTetraConfig] = useState<TETRAConfig>(() =>
-    loadFromStorage(STORAGE_KEYS.tetraConfig, DEFAULT_TETRA_CONFIG),
-  );
 
   const devices = useMemo(() => devicesResponse?.devices ?? [], [devicesResponse]);
-
-  // The stored preference wins while it is usable (or while RF runs on it);
-  // otherwise fall back to the only usable device.
-  const selectedDeviceId = useMemo(() => {
-    const usable = devices.filter((device) => device.available && device.probe_ok);
-    if (preferredDeviceId && (runtimeActive || usable.some((device) => device.id === preferredDeviceId))) {
-      return preferredDeviceId;
-    }
-    if (!devicesResponse) {
-      return preferredDeviceId;
-    }
-    return usable.length === 1 ? usable[0].id : null;
-  }, [devices, devicesResponse, preferredDeviceId, runtimeActive]);
-  const selectedDevice = devices.find((device) => device.id === selectedDeviceId) ?? null;
+  const activeProtocol = transmit?.mode.protocol ?? null;
+  const rf = transmit?.rf;
+  const mmdvmStatus = rf?.mmdvm ?? null;
 
   // ---------------------------------------------------------------- loaders
+  const loadTransmit = useCallback(async () => {
+    try {
+      setTransmit(await apiFetch<TransmitState>("/api/transmit"));
+    } catch {
+      // backend offline: the health check reports it
+    }
+  }, []);
+
   const loadDevices = useCallback(async () => {
     setDevicesLoading(true);
     setDevicesError(null);
@@ -175,18 +154,6 @@ function AppContent() {
       setCapabilities(await apiFetch<VoiceCapabilities>("/api/voice/capabilities"));
     } catch {
       // older backend
-    }
-  }, []);
-
-  const applyRFStatus = useCallback((data: RFStatus) => {
-    setRuntimeActive(Boolean(data.runtime_active));
-    setRfTxActive(Boolean(data.rf_tx_active));
-    setMmdvmStatus(data.mmdvm ?? null);
-    if (data.protocol) {
-      setActiveProtocol(data.protocol);
-    }
-    if (data.device_id) {
-      setSelectedDeviceId(data.device_id);
     }
   }, []);
 
@@ -213,7 +180,6 @@ function AppContent() {
         if (data.modes.fm) setFmConfig(fmFromSaved(data.modes.fm));
         if (data.modes.dmr) setDmrConfig(dmrFromSaved(data.modes.dmr));
         if (data.modes.p25) setP25Config(p25FromSaved(data.modes.p25));
-        if (data.modes.tetra) setTetraConfig(tetraFromSaved(data.modes.tetra));
         if (data.modes.ysf) setYsfConfig(ysfFromSaved(data.modes.ysf));
         if (data.modes.dstar) setDstarConfig(dstarFromSaved(data.modes.dstar));
         if (data.modes.nxdn) setNxdnConfig(nxdnFromSaved(data.modes.nxdn));
@@ -226,67 +192,37 @@ function AppContent() {
       }
     };
 
-    const loadRFStatus = () =>
-      apiFetch<RFStatus>("/api/rf/status")
-        .then((data) => {
-          if (!cancelled) {
-            applyRFStatus(data);
-          }
-        })
-        .catch(() => undefined);
-
     const loadInitialDevices = () =>
       apiFetch<RFDevicesResponse>("/api/devices")
-        .then((data) => {
-          if (!cancelled) {
-            setDevicesResponse(data);
-            setDevicesError(null);
-          }
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            setDevicesError(errorMessage(error));
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setDevicesLoading(false);
-          }
-        });
-
-    const loadVoiceCapabilities = () =>
-      apiFetch<VoiceCapabilities>("/api/voice/capabilities")
-        .then((data) => {
-          if (!cancelled) {
-            setCapabilities(data);
-          }
-        })
-        .catch(() => undefined);
+        .then((data) => !cancelled && setDevicesResponse(data))
+        .catch((error) => !cancelled && setDevicesError(errorMessage(error)))
+        .finally(() => !cancelled && setDevicesLoading(false));
 
     void loadHealth();
     void loadModes();
     void loadInitialDevices();
-    void loadVoiceCapabilities();
-    void loadRFStatus();
+    apiFetch<VoiceCapabilities>("/api/voice/capabilities")
+      .then((data) => !cancelled && setCapabilities(data))
+      .catch(() => undefined);
+    apiFetch<TransmitState>("/api/transmit")
+      .then((data) => !cancelled && setTransmit(data))
+      .catch(() => undefined);
 
-    const statusTimer = window.setInterval(() => void loadRFStatus(), 750);
+    const transmitTimer = window.setInterval(() => void loadTransmit(), 1000);
     const healthTimer = window.setInterval(() => void loadHealth(), 10000);
-    const capabilityTimer = window.setInterval(() => void loadVoiceCapabilities(), 30000);
+    const capabilityTimer = window.setInterval(() => void loadCapabilities(), 30000);
     return () => {
       cancelled = true;
-      window.clearInterval(statusTimer);
+      window.clearInterval(transmitTimer);
       window.clearInterval(healthTimer);
       window.clearInterval(capabilityTimer);
     };
-  }, [applyRFStatus]);
+  }, [loadCapabilities, loadTransmit]);
 
   // ------------------------------------------------------------ persistence
-  useEffect(() => saveToStorage(STORAGE_KEYS.activeProtocol, activeProtocol), [activeProtocol]);
-  useEffect(() => saveToStorage(STORAGE_KEYS.selectedDeviceId, preferredDeviceId), [preferredDeviceId]);
   useEffect(() => saveToStorage(STORAGE_KEYS.fmConfig, fmConfig), [fmConfig]);
   useEffect(() => saveToStorage(STORAGE_KEYS.dmrConfig, dmrConfig), [dmrConfig]);
   useEffect(() => saveToStorage(STORAGE_KEYS.p25Config, p25Config), [p25Config]);
-  useEffect(() => saveToStorage(STORAGE_KEYS.tetraConfig, tetraConfig), [tetraConfig]);
   useEffect(() => saveToStorage(STORAGE_KEYS.ysfConfig, ysfConfig), [ysfConfig]);
   useEffect(() => saveToStorage(STORAGE_KEYS.dstarConfig, dstarConfig), [dstarConfig]);
   useEffect(() => saveToStorage(STORAGE_KEYS.nxdnConfig, nxdnConfig), [nxdnConfig]);
@@ -299,9 +235,9 @@ function AppContent() {
   }, [page]);
   useEffect(() => {
     const onHashChange = () => {
-      const next = window.location.hash.replace("#", "");
-      if ((PAGES as string[]).includes(next)) {
-        setPage(next as PageId);
+      const next = pageFromHash();
+      if (next) {
+        setPage(next);
       }
     };
     window.addEventListener("hashchange", onHashChange);
@@ -319,122 +255,119 @@ function AppContent() {
   useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => fmPayload(fmConfig)), [fmConfig]));
   useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => dmrPayload(dmrConfig)), [dmrConfig]));
   useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => p25Payload(p25Config)), [p25Config]));
-  useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => tetraPayload(tetraConfig)), [tetraConfig]));
   useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => ysfPayload(ysfConfig)), [ysfConfig]));
   useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => dstarPayload(dstarConfig)), [dstarConfig]));
   useAutosave(modeConfigsLoaded, useMemo(() => payloadJson(() => nxdnPayload(nxdnConfig)), [nxdnConfig]));
 
-  // DMR vocoder changes alter capability; refresh shortly after saving.
+  // Vocoder changes alter capability; refresh shortly after saving.
   useEffect(() => {
     const timer = window.setTimeout(() => void loadCapabilities(), 1500);
     return () => window.clearTimeout(timer);
   }, [dmrConfig.vocoder, ysfConfig.vocoder, nxdnConfig.vocoder, loadCapabilities]);
 
   // ----------------------------------------------------------------- actions
-  const toggleProtocol = (protocol: Protocol) => {
-    if (runtimeActive) {
-      return;
+  const selectProtocol = async (protocol: Protocol) => {
+    setTransmit((current) => (current ? { ...current, mode: { ...current.mode, protocol } } : current));
+    try {
+      await apiFetch("/api/transmit/mode", { method: "PUT", body: JSON.stringify({ protocol }) });
+    } finally {
+      void loadTransmit();
     }
-    setRuntimeMessage(null);
-    setRuntimeError(null);
-    setActiveProtocol((current) => (current === protocol ? null : protocol));
   };
 
-  const selectDevice = (device: RFDevice) => {
-    if (runtimeActive || !device.available || !device.probe_ok) {
+  const selectDevice = async (deviceId: string) => {
+    if (!deviceId) {
       return;
     }
-    setSelectedDeviceId(device.id);
-    setRuntimeMessage(null);
-    setRuntimeError(null);
+    await apiFetch("/api/transmit/device", { method: "PUT", body: JSON.stringify({ device_id: deviceId }) });
+    void loadTransmit();
   };
 
-  const buildStartPayload = () => {
-    if (!activeProtocol) {
-      throw new Error("Select an RF protocol first");
-    }
-    if (!selectedDevice) {
-      throw new Error("Select an RF device first");
-    }
-    const builders = {
+  const modePayload = (protocol: Protocol) => {
+    const builders: Partial<Record<Protocol, () => object>> = {
       fm: () => fmPayload(fmConfig),
       dmr: () => dmrPayload(dmrConfig),
       p25: () => p25Payload(p25Config),
       ysf: () => ysfPayload(ysfConfig),
       dstar: () => dstarPayload(dstarConfig),
       nxdn: () => nxdnPayload(nxdnConfig),
-      tetra: () => tetraPayload(tetraConfig),
     };
-    return { ...builders[activeProtocol](), device_id: selectedDevice.id };
-  };
-
-  const handleStart = async () => {
-    setRuntimeMessage(null);
-    setRuntimeError(null);
-    try {
-      const payload = buildStartPayload();
-      const data = await apiFetch<RFStatus>("/api/rf/start", { method: "POST", body: JSON.stringify(payload) });
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      applyRFStatus(data);
-      setRuntimeMessage(
-        `${activeProtocol?.toUpperCase()} runtime started on ${selectedDevice ? getDeviceDisplayName(selectedDevice) : "device"}`,
-      );
-    } catch (error) {
-      setRuntimeError(errorMessage(error));
+    const build = builders[protocol];
+    if (!build) {
+      throw new Error(`${protocol.toUpperCase()} cannot be transmitted`);
     }
+    return build();
   };
 
-  const handleStop = async () => {
-    setCalibrationOpen(false);
-    setRuntimeMessage(null);
-    setRuntimeError(null);
+  /** Calibration needs the transmitter running (without a source). */
+  const openCalibration = async () => {
+    setCalibrationError(null);
+    if (!activeProtocol) {
+      return;
+    }
     try {
-      const data = await apiFetch<RFStatus>("/api/rf/stop", { method: "POST" });
-      if (data.error) {
-        throw new Error(data.error);
+      if (!rf?.runtime_active) {
+        const deviceId =
+          transmit?.device_id ?? devices.find((device) => device.available && device.probe_ok)?.id ?? null;
+        if (!deviceId) {
+          throw new Error("No usable RF device");
+        }
+        await apiFetch("/api/rf/start", {
+          method: "POST",
+          body: JSON.stringify({ ...modePayload(activeProtocol), device_id: deviceId }),
+        });
       }
-      applyRFStatus(data);
-      setRuntimeMessage("RF runtime stopped");
+      setCalibrationOpen(true);
     } catch (error) {
-      setRuntimeError(errorMessage(error));
+      setCalibrationError(errorMessage(error));
+    } finally {
+      void loadTransmit();
     }
   };
 
   // ------------------------------------------------------------------ status
+  const selectedDevice = devices.find((device) => device.id === (transmit?.device_id ?? rf?.device_id)) ?? null;
   const activeFrequencyHz = (() => {
     if (mmdvmStatus?.channel_frequency_hz) {
       return mmdvmStatus.channel_frequency_hz;
     }
     try {
-      if (activeProtocol === "fm") return fmPayload(fmConfig).frequency_hz;
-      if (activeProtocol === "dmr") return dmrPayload(dmrConfig).frequency_hz;
-      if (activeProtocol === "p25") return p25Payload(p25Config).frequency_hz;
-      if (activeProtocol === "tetra") return tetraPayload(tetraConfig).frequency_hz;
-      if (activeProtocol === "ysf") return ysfPayload(ysfConfig).frequency_hz;
-      if (activeProtocol === "dstar") return dstarPayload(dstarConfig).frequency_hz;
-      if (activeProtocol === "nxdn") return nxdnPayload(nxdnConfig).frequency_hz;
+      return activeProtocol ? (modePayload(activeProtocol) as { frequency_hz?: number }).frequency_hz ?? null : null;
     } catch {
       return null;
     }
-    return null;
   })();
 
   const shellStatus: ShellStatus = {
     backendOnline,
     backendVersion: health?.version ?? null,
-    runtimeActive,
-    rfTxActive,
+    runtimeActive: Boolean(rf?.runtime_active),
+    rfTxActive: Boolean(rf?.rf_tx_active),
     protocolLabel: activeProtocol ? PROTOCOL_INFO[activeProtocol].name : null,
     frequencyLabel: activeProtocol ? formatFrequency(activeFrequencyHz, 4) : null,
     deviceLabel: selectedDevice ? `${getDeviceDisplayName(selectedDevice)} · ${selectedDevice.driver}` : null,
-    routeCount,
     sourceCount,
     deviceCount: devicesResponse?.device_count ?? 0,
   };
 
-  const refreshSources = () => setSourceRefreshKey((value) => value + 1);
+  const modeForm = (() => {
+    switch (activeProtocol) {
+      case "fm":
+        return <FMConfigForm value={fmConfig} onChange={setFmConfig} />;
+      case "dmr":
+        return <DMRConfigForm value={dmrConfig} onChange={setDmrConfig} />;
+      case "p25":
+        return <P25ConfigForm value={p25Config} onChange={setP25Config} />;
+      case "ysf":
+        return <YSFConfigForm value={ysfConfig} onChange={setYsfConfig} />;
+      case "dstar":
+        return <DStarConfigForm value={dstarConfig} onChange={setDstarConfig} />;
+      case "nxdn":
+        return <NXDNConfigForm value={nxdnConfig} onChange={setNxdnConfig} />;
+      default:
+        return null;
+    }
+  })();
 
   return (
     <AppShell
@@ -448,64 +381,22 @@ function AppContent() {
     >
       {backendOnline === false && (
         <div className="banner banner-danger">
-          Backend unreachable at {API_BASE_URL || window.location.origin}/api — start it with ./scripts/run-dev.sh
+          Backend unreachable at {API_BASE_URL || window.location.origin}/api — start it with: rf-gateway start
         </div>
       )}
+      {calibrationError && <div className="banner banner-danger">{calibrationError}</div>}
 
-      {page === "dashboard" && (
-        <DashboardPage status={shellStatus} mmdvmStatus={mmdvmStatus} capabilities={capabilities} onNavigate={setPage} />
-      )}
-
-      {/* Routes stay mounted so their polling and counters keep running. */}
-      <div style={{ display: page === "routes" ? "block" : "none" }}>
-        <RoutesPanel apiBaseUrl={API_BASE_URL} onRoutesChanged={setRouteCount} onSourcesChanged={refreshSources} />
-      </div>
-
-      {page === "telemetry" && (
-        <>
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">MMDVM</span>
-              <span className="card-sub">{mmdvmStatus?.runtime_config ?? ""}</span>
-            </div>
-            <div className="card-body">
-              <TelemetryTiles status={mmdvmStatus} runtimeActive={runtimeActive} rfTxActive={rfTxActive} />
-            </div>
-          </div>
-          <VoicePaths capabilities={capabilities} />
-        </>
-      )}
-
-      {page === "modes" && (
-        <ModesPage
-          activeProtocol={activeProtocol}
-          onToggleProtocol={toggleProtocol}
-          runtimeActive={runtimeActive}
-          runtimeReady={Boolean(mmdvmStatus?.runtime_ready)}
-          rfTxActive={rfTxActive}
+      {page === "transmit" && (
+        <TransmitPage
+          transmit={transmit}
+          onRefresh={() => void loadTransmit()}
           capabilities={capabilities}
+          onSelectProtocol={(protocol) => void selectProtocol(protocol)}
+          modeForm={modeForm}
           devices={devices}
-          selectedDevice={selectedDevice}
-          onSelectDevice={selectDevice}
-          fmConfig={fmConfig}
-          setFmConfig={setFmConfig}
-          dmrConfig={dmrConfig}
-          setDmrConfig={setDmrConfig}
-          p25Config={p25Config}
-          setP25Config={setP25Config}
-          nxdnConfig={nxdnConfig}
-          setNxdnConfig={setNxdnConfig}
-          dstarConfig={dstarConfig}
-          setDstarConfig={setDstarConfig}
-          ysfConfig={ysfConfig}
-          setYsfConfig={setYsfConfig}
-          tetraConfig={tetraConfig}
-          setTetraConfig={setTetraConfig}
-          runtimeMessage={runtimeMessage}
-          runtimeError={runtimeError}
-          onStart={() => void handleStart()}
-          onStop={() => void handleStop()}
-          onCalibrate={() => setCalibrationOpen(true)}
+          onSelectDevice={(deviceId) => void selectDevice(deviceId)}
+          onCalibrate={() => void openCalibration()}
+          onSourcesChanged={setSourceCount}
         />
       )}
 
@@ -515,26 +406,22 @@ function AppContent() {
           loading={devicesLoading}
           error={devicesError}
           warnings={devicesResponse?.warnings ?? []}
-          selectedDeviceId={selectedDeviceId}
-          runtimeActive={runtimeActive}
+          selectedDeviceId={transmit?.device_id ?? null}
+          runtimeActive={Boolean(rf?.runtime_active)}
           onRefresh={() => void loadDevices()}
-          onSelect={selectDevice}
+          onSelect={(device) => void selectDevice(device.id)}
         />
       )}
 
-      {page === "remote_sdr" && <RemoteSdrPage onSourcesChanged={refreshSources} onOpenRoutes={() => setPage("routes")} />}
-
-      <div style={{ display: page === "sources" ? "block" : "none" }}>
-        <SourcesPanel onCountChange={setSourceCount} refreshKey={sourceRefreshKey} />
-      </div>
+      {page === "remote_sdr" && <RemoteSdrPage onSourcesChanged={() => undefined} onOpenRoutes={() => setPage("transmit")} />}
 
       {page === "logs" && <LogsPage />}
 
       <CalibrationPanel
         open={calibrationOpen}
-        runtimeActive={runtimeActive}
+        runtimeActive={Boolean(rf?.runtime_active)}
         runtimeReady={Boolean(mmdvmStatus?.runtime_ready)}
-        rfTxActive={rfTxActive}
+        rfTxActive={Boolean(rf?.rf_tx_active)}
         protocol={activeProtocol}
         channelFrequencyHz={mmdvmStatus?.channel_frequency_hz}
         sdrCenterFrequencyHz={mmdvmStatus?.sdr_tx_center_frequency_hz}

@@ -11,7 +11,7 @@ function DMRConfig({ value, onChange }: DMRConfigProps) {
 
   return (
     <div className="protocol-config">
-      <h3>DMR (Tier II, simplex hotspot)</h3>
+      <h3>DMR</h3>
       <div className="form-grid">
         <label>
           Frequency (MHz)
@@ -24,14 +24,9 @@ function DMRConfig({ value, onChange }: DMRConfigProps) {
         <label>
           Timeslot
           <select value={value.timeslot} onChange={(e) => set("timeslot", e.target.value as "1" | "2")}>
+            <option value="1">TS1</option>
             <option value="2">TS2</option>
-            <option value="1">TS1 (duplex only)</option>
           </select>
-          {value.timeslot === "1" && (
-            <span className="field-hint" style={{ color: "var(--warn)" }}>
-              A simplex hotspot transmits on TS2 only.
-            </span>
-          )}
         </label>
         <label>
           Call type
@@ -49,6 +44,10 @@ function DMRConfig({ value, onChange }: DMRConfigProps) {
           <input value={value.radioId} inputMode="numeric" onChange={(e) => set("radioId", e.target.value)} />
         </label>
       </div>
+
+      <p className="field-hint">
+        Sent like a repeater (both timeslots). Program the radio with this frequency, color code and timeslot.
+      </p>
 
       <AmbeVocoderFields value={value} onChange={onChange} />
     </div>

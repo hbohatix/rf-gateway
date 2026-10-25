@@ -93,16 +93,17 @@ class UnifiedRouteSetupTests(unittest.TestCase):
         start.assert_called_once_with("new-route")
         self.assertFalse(result["start"]["started"])
 
+    @patch("app.routes.stop_rf_runtime")
     @patch("app.routes.run_preflight")
-    @patch("app.routes.update_route")
+    @patch("app.routes._sync_route_to_mode")
+    @patch("app.routes.require_active_mode", return_value=("dmr", {"frequency_hz": 1}))
     @patch("app.routes.get_route_or_404")
-    def test_explicit_start_enables_disabled_route(self, get_route, update, preflight):
-        get_route.side_effect = [
-            {"id": "route", "enabled": False},
-            {"id": "route", "enabled": True},
-        ]
+    def test_explicit_start_enables_route_in_transmit_mode(self, get_route, mode, sync, preflight, stop_rf):
+        get_route.return_value = {"id": "route", "enabled": False, "protocol": "p25"}
+        sync.return_value = {"id": "route", "enabled": True, "protocol": "dmr", "device_id": "sx"}
         preflight.return_value = {"state": "blocked", "error": "no audio"}
         with (
+            patch("app.routes._halt_route"),
             patch("app.routes.get_worker_status", return_value=None),
             patch("app.routes.get_processor_status", return_value=None),
             patch("app.routes.get_live_audio_status", return_value=None),
@@ -110,8 +111,9 @@ class UnifiedRouteSetupTests(unittest.TestCase):
         ):
             result = start_route("route")
         self.assertFalse(result["started"])
-        self.assertEqual(update.call_args.args[1].enabled, True)
-        preflight.assert_called_once()
+        self.assertEqual(sync.call_args.args[1], "dmr")
+        preflight.assert_called_once_with(sync.return_value)
+        stop_rf.assert_called_once()
 
 
 

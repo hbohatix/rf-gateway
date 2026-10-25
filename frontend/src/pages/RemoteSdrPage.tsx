@@ -342,7 +342,7 @@ export default function RemoteSdrPage({ onSourcesChanged, onOpenRoutes }: Props)
               <Icon name="plus" /> {t("sdr.save")}
             </button>
             <button type="button" className="btn" onClick={onOpenRoutes} style={{ marginLeft: "auto" }}>
-              <Icon name="routes" /> {t("page.routes")}
+              <Icon name="radio" /> {t("page.transmit")}
             </button>
           </div>
           <p className="help-text" style={{ fontSize: 11.5, color: "var(--text3)" }}>

@@ -3,6 +3,9 @@ import { frequencyToHz, hzToMHzString, optionalNumber, optionalNumberToString, r
 
 export const PROTOCOLS: Protocol[] = ["fm", "dmr", "ysf", "dstar", "nxdn", "p25", "tetra"];
 
+/** Modes that can carry source audio (the transmit modes). */
+export const STREAMING_PROTOCOLS: Protocol[] = ["dmr", "p25", "fm", "ysf", "dstar", "nxdn"];
+
 export const STORAGE_KEYS = {
   activeProtocol: "rf-gateway.activeProtocol",
   selectedDeviceId: "rf-gateway.selectedDeviceId",
