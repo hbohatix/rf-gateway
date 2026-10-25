@@ -6,8 +6,32 @@ from typing import Any
 
 SUPPORTED_RUNTIME_PROTOCOLS = {
     "dmr",
+    "fm",
     "p25",
+    "ysf",
+    "dstar",
+    "nxdn",
 }
+
+# Protocols identified by callsign rather than a numeric radio ID.
+CALLSIGN_PROTOCOLS = {
+    "fm",
+    "ysf",
+    "dstar",
+}
+
+
+# Local network ports shared with the voice sessions in app.voice.
+DMR_NETWORK_LOCAL_PORT = 62032
+DMR_NETWORK_GATEWAY_PORT = 62031
+FM_NETWORK_LOCAL_PORT = 3810
+FM_NETWORK_GATEWAY_PORT = 4810
+YSF_NETWORK_LOCAL_PORT = 3200
+YSF_NETWORK_GATEWAY_PORT = 4200
+DSTAR_NETWORK_LOCAL_PORT = 20011
+DSTAR_NETWORK_GATEWAY_PORT = 20010
+NXDN_NETWORK_LOCAL_PORT = 14021
+NXDN_NETWORK_GATEWAY_PORT = 14020
 
 
 P25_NETWORK_LOCAL_ADDRESS = (
@@ -113,11 +137,6 @@ def validate_runtime_mode(
             "current MMDVM runtime"
         )
 
-    if protocol == "fm":
-        raise ValueError(
-            "FM runtime mapping is not implemented yet. "
-            "FM settings are still stored normally."
-        )
 
     if protocol not in (
         SUPPORTED_RUNTIME_PROTOCOLS
@@ -131,9 +150,24 @@ def validate_runtime_mode(
         settings
     )
 
-    _require_radio_id(
-        settings
-    )
+    if protocol not in CALLSIGN_PROTOCOLS:
+        _require_radio_id(
+            settings
+        )
+
+    if protocol == "ysf":
+        callsign = str(settings.get("callsign") or "").strip()
+        if not 1 <= len(callsign) <= 10:
+            raise ValueError(
+                "YSF callsign must be 1-10 characters"
+            )
+
+    if protocol == "dstar":
+        callsign = str(settings.get("callsign") or "").strip()
+        if not 3 <= len(callsign) <= 8:
+            raise ValueError(
+                "D-Star callsign must be 3-8 characters"
+            )
 
     if protocol == "dmr":
         color_code = int(
@@ -164,6 +198,13 @@ def validate_runtime_mode(
                 "DMR Timeslot must be 1 or 2"
             )
 
+        if timeslot != 2:
+            raise ValueError(
+                "This simplex (DMO) hotspot transmits on "
+                "DMR Timeslot 2 only; MMDVM-Host drops "
+                "Timeslot 1 traffic when Duplex=0"
+            )
+
     if protocol == "p25":
         _normalize_nac(
             settings.get(
@@ -184,6 +225,53 @@ def validate_runtime_mode(
                 "Current P25 runtime supports "
                 "the C4FM path only"
             )
+
+
+def _render_fm_section(
+    settings: dict[str, Any],
+) -> str:
+    """[FM] keys for network (external audio) transmission."""
+    ctcss = settings.get("tx_ctcss_hz")
+    try:
+        ctcss_hz = float(ctcss) if ctcss not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        ctcss_hz = 0.0
+    deviation = float(settings.get("deviation_khz", 2.5) or 2.5)
+    # MaxDevLevel is a percentage of the modem's full deviation (5 kHz).
+    max_dev_level = max(10, min(100, int(round(deviation / 5.0 * 100))))
+    lines = [
+        "CallsignSpeed=20",
+        "CallsignFrequency=1000",
+        "CallsignTime=10",
+        "CallsignHoldoff=0",
+        "CallsignHighLevel=50",
+        "CallsignLowLevel=20",
+        "CallsignAtStart=0",
+        "CallsignAtEnd=0",
+        "CallsignAtLatch=0",
+        "RFAck=",
+        "ExtAck=",
+        "AckSpeed=20",
+        "AckFrequency=1750",
+        "AckMinTime=4",
+        "AckDelay=1000",
+        "AckLevel=50",
+        "TimeoutLevel=80",
+        f"CTCSSFrequency={ctcss_hz if ctcss_hz > 0 else 88.4}",
+        "CTCSSThreshold=30",
+        f"CTCSSLevel={20 if ctcss_hz > 0 else 0}",
+        "KerchunkTime=0",
+        "HangTime=3",
+        "AccessMode=1",
+        "LinkMode=1",
+        "COSInvert=0",
+        "NoiseSquelch=0",
+        "SquelchThreshold=30",
+        "RFAudioBoost=1",
+        f"MaxDevLevel={max_dev_level}",
+        "ExtAudioBoost=1",
+    ]
+    return "\n".join(lines)
 
 
 def render_mmdvm_host_config(
@@ -214,12 +302,69 @@ def render_mmdvm_host_config(
         _require_radio_id(
             settings
         )
+        if protocol not in CALLSIGN_PROTOCOLS
+        else int(
+            settings.get(
+                "radio_id",
+                0,
+            )
+            or 1
+        )
     )
 
     dmr_enable = (
         1
         if protocol == "dmr"
         else 0
+    )
+
+    ysf_enable = (
+        1
+        if protocol == "ysf"
+        else 0
+    )
+
+    nxdn_enable = (
+        1
+        if protocol == "nxdn"
+        else 0
+    )
+
+    nxdn_ran = (
+        int(settings.get("ran", 1))
+        if protocol == "nxdn"
+        else 1
+    )
+
+    dstar_enable = (
+        1
+        if protocol == "dstar"
+        else 0
+    )
+
+    dstar_module = (
+        str(settings.get("module") or "B").strip().upper()[:1]
+        if protocol == "dstar"
+        else "B"
+    ) or "B"
+
+    ysf_low_deviation = (
+        1
+        if protocol == "ysf"
+        and settings.get("low_deviation")
+        else 0
+    )
+
+    fm_enable = (
+        1
+        if protocol == "fm"
+        else 0
+    )
+
+    fm_section = _render_fm_section(
+        settings
+        if protocol == "fm"
+        else {}
     )
 
     p25_enable = (
@@ -468,15 +613,85 @@ RemoteGateway=0
 SoftId=0
 TXHang=5
 
+[D-Star]
+Enable={dstar_enable}
+Module={dstar_module}
+SelfOnly=0
+AckReply=0
+AckTime=750
+AckMessage=0
+ErrorReply=0
+RemoteGateway=0
+
+[System Fusion]
+Enable={ysf_enable}
+LowDeviation={ysf_low_deviation}
+SelfOnly=0
+TXHang=4
+RemoteGateway=0
+
+[NXDN]
+Enable={nxdn_enable}
+RAN={nxdn_ran}
+SelfOnly=0
+RemoteGateway=0
+TXHang=5
+
 [POCSAG]
 Enable=0
 Frequency={frequency_hz}
 
 [FM]
-Enable=0
+Enable={fm_enable}
+{fm_section}
 
 [DMR Network]
-Enable=0
+Enable={dmr_enable}
+LocalAddress=127.0.0.1
+LocalPort={DMR_NETWORK_LOCAL_PORT}
+GatewayAddress=127.0.0.1
+GatewayPort={DMR_NETWORK_GATEWAY_PORT}
+Jitter=360
+Slot1=0
+Slot2=1
+Debug=0
+
+[D-Star Network]
+Enable={dstar_enable}
+LocalAddress=127.0.0.1
+LocalPort={DSTAR_NETWORK_LOCAL_PORT}
+GatewayAddress=127.0.0.1
+GatewayPort={DSTAR_NETWORK_GATEWAY_PORT}
+Debug=0
+
+[NXDN Network]
+Enable={nxdn_enable}
+Protocol=Icom
+LocalAddress=127.0.0.1
+LocalPort={NXDN_NETWORK_LOCAL_PORT}
+GatewayAddress=127.0.0.1
+GatewayPort={NXDN_NETWORK_GATEWAY_PORT}
+Debug=0
+
+[System Fusion Network]
+Enable={ysf_enable}
+LocalAddress=127.0.0.1
+LocalPort={YSF_NETWORK_LOCAL_PORT}
+GatewayAddress=127.0.0.1
+GatewayPort={YSF_NETWORK_GATEWAY_PORT}
+Debug=0
+
+[FM Network]
+Enable={fm_enable}
+LocalAddress=127.0.0.1
+LocalPort={FM_NETWORK_LOCAL_PORT}
+GatewayAddress=127.0.0.1
+GatewayPort={FM_NETWORK_GATEWAY_PORT}
+PreEmphasis={1 if settings.get("pre_emphasis", True) else 0}
+DeEmphasis=1
+TXAudioGain=1.0
+RXAudioGain=1.0
+Debug=0
 
 [P25 Network]
 Enable={p25_enable}

@@ -42,10 +42,25 @@ from app.direct_audio_client import (
     validate_direct_audio_url,
 )
 
+from app.remote_sdr import (
+    parse_remote_sdr_url,
+    remote_sdr_client,
+)
+
+from app.voice.registry import (
+    STREAMING_PROTOCOLS,
+    create_voice_session,
+    supports_streaming,
+)
+
 
 DEFAULT_READ_TIMEOUT_SECONDS = 0.5
 
 DEFAULT_TRANSPORT_GAP_END_SECONDS = 3.0
+
+# MMDVM-Host drops a network transmission after [General] Timeout (180 s).
+# Long continuous audio is split into back-to-back transmissions below it.
+DEFAULT_TX_ROLLOVER_SECONDS = 150.0
 
 
 def utc_now() -> str:
@@ -117,14 +132,16 @@ class BroadcastifyLiveAudioPipeline:
             .lower()
         )
 
-        self.client = (
-            client
-            or (
-                direct_audio_client
-                if source.get("type") == "direct_audio"
-                else broadcastify_live_audio_client
-            )
-        )
+        source_type = source.get("type")
+
+        if client is not None:
+            self.client = client
+        elif source_type == "direct_audio":
+            self.client = direct_audio_client
+        elif source_type == "remote_sdr":
+            self.client = remote_sdr_client
+        else:
+            self.client = broadcastify_live_audio_client
 
         self.read_timeout_seconds = float(
             read_timeout_seconds
@@ -167,6 +184,15 @@ class BroadcastifyLiveAudioPipeline:
             float
             | None
         ) = None
+
+        self._tx_started_monotonic: (
+            float
+            | None
+        ) = None
+
+        self.tx_rollover_seconds = (
+            DEFAULT_TX_ROLLOVER_SECONDS
+        )
 
         self._state: dict[
             str,
@@ -218,6 +244,9 @@ class BroadcastifyLiveAudioPipeline:
                 0,
 
             "tx_end_count":
+                0,
+
+            "tx_rollover_count":
                 0,
 
             "transport_gap_end_count":
@@ -303,14 +332,30 @@ class BroadcastifyLiveAudioPipeline:
             .lower()
         )
 
+        if source_type == "remote_sdr":
+            if not supports_streaming(self.protocol):
+                raise BroadcastifyLiveAudioPipelineError(
+                    "Remote SDR sources support protocols: "
+                    + ", ".join(STREAMING_PROTOCOLS)
+                )
+            try:
+                return parse_remote_sdr_url(
+                    str(self.source.get("url") or "")
+                ).url
+            except ValueError as error:
+                raise BroadcastifyLiveAudioPipelineError(
+                    str(error)
+                ) from error
+
         if source_type == "direct_audio":
             if provider != "direct":
                 raise BroadcastifyLiveAudioPipelineError(
                     "Direct Audio requires direct provider"
                 )
-            if self.protocol != "p25":
+            if not supports_streaming(self.protocol):
                 raise BroadcastifyLiveAudioPipelineError(
-                    "Direct Audio currently supports P25 only"
+                    "Direct Audio supports protocols: "
+                    + ", ".join(STREAMING_PROTOCOLS)
                 )
             return validate_direct_audio_url(str(self.source.get("url") or ""))
 
@@ -344,13 +389,13 @@ class BroadcastifyLiveAudioPipeline:
                 )
             )
 
-        if self.protocol != "p25":
+        if not supports_streaming(self.protocol):
             raise (
                 BroadcastifyLiveAudioPipelineError(
                     (
-                        "Broadcastify Live Audio "
-                        "pipeline currently supports "
-                        "protocol p25 only"
+                        "Live Audio pipeline supports "
+                        "protocols: "
+                        + ", ".join(STREAMING_PROTOCOLS)
                     )
                 )
             )
@@ -497,6 +542,39 @@ class BroadcastifyLiveAudioPipeline:
             self._touch()
 
 
+    def _maybe_rollover(
+        self,
+        session: Any,
+    ) -> None:
+        started = (
+            self._tx_started_monotonic
+        )
+
+        if (
+            started is None
+            or not session.active
+            or time.monotonic() - started
+            < self.tx_rollover_seconds
+        ):
+            return
+
+        # End the current transmission cleanly and start a new one so
+        # MMDVM-Host's transmission timeout never cuts the audio.
+        session.end()
+        session.start()
+
+        self._tx_started_monotonic = (
+            time.monotonic()
+        )
+
+        with self._lock:
+            self._state[
+                "tx_rollover_count"
+            ] += 1
+
+            self._touch()
+
+
     def _handle_transport_gap(
         self,
     ) -> None:
@@ -618,6 +696,10 @@ class BroadcastifyLiveAudioPipeline:
         if decision.started:
             p25.start()
 
+            self._tx_started_monotonic = (
+                time.monotonic()
+            )
+
             with self._lock:
                 self._state[
                     "tx_start_count"
@@ -647,6 +729,10 @@ class BroadcastifyLiveAudioPipeline:
 
             payload = b"".join(
                 decision.output_chunks
+            )
+
+            self._maybe_rollover(
+                p25
             )
 
             p25.feed_pcm(
@@ -693,8 +779,8 @@ class BroadcastifyLiveAudioPipeline:
                 )
             )
 
-            p25 = (
-                P25StreamingSession()
+            p25 = create_voice_session(
+                self.protocol
             )
 
             with self._lock:
@@ -994,8 +1080,17 @@ class BroadcastifyLiveAudioPipeline:
         ] = stream_status
 
         state[
-            "p25"
+            "voice"
         ] = p25_status
+
+        # Backwards compatible key: the P25 monitor reads ``p25``.
+        state[
+            "p25"
+        ] = (
+            p25_status
+            if self.protocol == "p25"
+            else None
+        )
 
         return state
 

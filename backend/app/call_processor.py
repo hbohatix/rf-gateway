@@ -188,6 +188,9 @@ class CallProcessor:
             "fm",
             "dmr",
             "p25",
+            "ysf",
+            "dstar",
+            "nxdn",
             "tetra",
         }:
             raise ValueError(

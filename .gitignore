@@ -16,6 +16,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -129,3 +130,8 @@ captures/
 recordings/
 # Local development backups
 *.bak-*
+
+# Development-only native tools
+backend/native/tools/dmr_frame_check
+backend/native/tools/ysf_frame_check
+backend/native/tools/dstar_frame_check
