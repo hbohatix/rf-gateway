@@ -72,6 +72,13 @@ from app.audio_bridge import (
     get_all_audio_bridge_capabilities,
 )
 
+from app.rf.network_devices import (
+    NETWORK_SDR_TYPES,
+    add_network_device,
+    list_network_devices,
+    remove_network_device,
+)
+
 from app.config_store import (
     mode_config_store,
 )
@@ -750,6 +757,69 @@ def save_mode_config(
 def get_voice_capabilities():
     """Which protocols can carry source audio right now, and why not."""
     return get_all_audio_bridge_capabilities()
+
+
+class NetworkSDRRequest(BaseModel):
+    sdr_type: Literal[
+        "plutosdr",
+        "libresdr",
+        "limesdr",
+        "limemini",
+        "usrp",
+    ]
+
+    uri: str = Field(
+        default="",
+        max_length=200,
+    )
+
+    label: str | None = Field(
+        default=None,
+        max_length=60,
+    )
+
+    rx_gain: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
+    tx_gain: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
+
+@app.get("/api/devices/network")
+def get_network_sdr_devices():
+    """Registered network SDR transmitters (PlutoSDR, LibreSDR, Lime, USRP)."""
+    return {
+        "types": NETWORK_SDR_TYPES,
+        "devices": list_network_devices(),
+    }
+
+
+@app.post("/api/devices/network")
+def add_network_sdr_device(request: NetworkSDRRequest):
+    payload = {
+        key: value
+        for key, value in request.model_dump().items()
+        if value is not None
+    }
+    try:
+        return add_network_device(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/devices/network/{device_id}")
+def delete_network_sdr_device(device_id: str):
+    if runtime_state.get("device_id") == device_id and mmdvm_process_manager.is_running:
+        raise HTTPException(status_code=409, detail="Stop the RF runtime before removing its device")
+    if not remove_network_device(device_id):
+        raise HTTPException(status_code=404, detail="Network SDR not found")
+    return {"deleted": True, "id": device_id}
 
 
 @app.get("/api/devices")

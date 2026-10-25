@@ -194,6 +194,16 @@ The default **software** encoder is OP25's AMBE encoder (`backend/native/ambe`, 
 
 `POST /api/sources/remote-sdr/probe` checks a URL (rtl_tcp handshake and tuner type, KiwiSDR `/status`, HTTP reachability) without saving it. Routes accept remote SDR sources exactly like Live Audio sources: activity gate, any supported protocol, TX rollover. Only retransmit receivers and audio you are authorized to use, on frequencies you are licensed for.
 
+## Network SDR transmitters
+
+A remote SDR can also be the **transmitter**. **RF Devices → Network SDR (TX)** (or `POST /api/devices/network`) registers a PlutoSDR, LibreSDR, LimeSDR / LimeSDR Mini or Ettus USRP with its SoapySDR URI (for example `ip:192.168.2.1`) and RX/TX gains. The device then appears in discovery and route setup like the SXceiver; when the runtime starts on it, RF Gateway writes `backend/data/runtime/mmdvm/MMDVM-IQ.ini` with the matching `[Soapy] Type/URI/RxGain/TxGain`.
+
+- TX gain defaults to **0**; raise it deliberately while measuring output power.
+- The SoapySDR module for the device must be installed on the gateway (SoapyPlutoSDR, SoapyLMS7, SoapyUHD); discovery reports a missing module or an unreachable `ip:` host (iiod port 30431) as a probe error.
+- These devices are untested on air in this project; the generated configuration was checked with MMDVM-IQ only.
+
+`config/mmdvm/MMDVM-IQ.ini` now uses the sections the current MMDVM-IQ reads (`[Host]`, `[Modem] Driver=Soapy`, `[Soapy]`). The previous file put the gains under `[Modem]`, which MMDVM-IQ ignores, so the SXceiver ran with RX gain 0 and TX gain 0. The new file keeps **TxGain=0** (same TX power as before) and applies the intended **RxGain=50**.
+
 ## Web UI
 
 The UI follows the TETRA FlowStation dashboard: a collapsible sidebar (Monitor / Radio / Sources / System), a status topbar, Dark / Light / Blue themes and Polish / English labels for the main screens.

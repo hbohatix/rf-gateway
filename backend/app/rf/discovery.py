@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .network_devices import list_network_devices, to_rf_device
 from .soapysdr import discover_soapy_devices
 
 
@@ -373,6 +374,15 @@ def discover_rf_devices(
         )
     ]
 
+    network_devices = [
+        to_rf_device(
+            entry,
+            MMDVM_IQ_FREQUENCY_RANGES_HZ,
+        )
+        for entry
+        in list_network_devices()
+    ]
+
     serial_devices = list(
         serial.get(
             "devices",
@@ -382,6 +392,7 @@ def discover_rf_devices(
 
     devices = [
         *soapy_devices,
+        *network_devices,
         *serial_devices,
     ]
 

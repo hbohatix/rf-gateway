@@ -119,6 +119,7 @@ function RFDeviceCard({
           <strong>
             {
               capabilities.uart_port ??
+              capabilities.soapy_uri ??
               capabilities.connection ??
               "—"
             }

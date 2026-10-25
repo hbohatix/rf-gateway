@@ -1,4 +1,5 @@
 import Icon from "../components/Icon";
+import NetworkSdrCard from "../components/NetworkSdrCard";
 import RFDeviceCard from "../components/RFDeviceCard";
 import { useI18n } from "../i18n";
 import type { RFDevice } from "../types/rfDevice";
@@ -17,6 +18,7 @@ type Props = {
 export default function DevicesPage({ devices, loading, error, warnings, selectedDeviceId, runtimeActive, onRefresh, onSelect }: Props) {
   const { t } = useI18n();
   return (
+    <>
     <div className="card">
       <div className="card-head">
         <span className="card-title">{t("page.devices")}</span>
@@ -49,5 +51,7 @@ export default function DevicesPage({ devices, loading, error, warnings, selecte
         )}
       </div>
     </div>
+    <NetworkSdrCard onChanged={onRefresh} disabled={runtimeActive} />
+    </>
   );
 }
