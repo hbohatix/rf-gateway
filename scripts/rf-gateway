@@ -80,6 +80,57 @@ port_owner() {
     ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*users:((\(.*\)))/\1/p' | head -n 1
 }
 
+port_pid() {
+    ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -n 1
+}
+
+# Root of the RF Gateway checkout whose backend/frontend listens on a port,
+# also when it was started from another checkout or without PID files.
+rfgw_root_on_port() {
+    local pid cmd cwd root
+    pid="$(port_pid "$1")"
+    [ -n "$pid" ] || return 1
+    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" || return 1
+    case "$cmd" in
+        *"uvicorn app.main:app"* | *vite*) ;;
+        *) return 1 ;;
+    esac
+    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)" || return 1
+    case "$cwd" in
+        */backend | */frontend) ;;
+        *) return 1 ;;
+    esac
+    root="${cwd%/*}"
+    [ -f "$root/scripts/rf-gateway" ] || return 1
+    printf '%s' "$root"
+}
+
+# Stop the RF Gateway server listening on a port (whole process group).
+stop_port_server() {
+    local name="$1" port="$2" root pid pgid waited=0
+    root="$(rfgw_root_on_port "$port")" || return 0
+    pid="$(port_pid "$port")"
+    pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    info "Stopping $name started from $root (pid $pid)..."
+    if [ -n "$pgid" ]; then
+        kill -TERM -- "-$pgid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    else
+        kill -TERM "$pid" 2>/dev/null || true
+    fi
+    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$STOP_TIMEOUT" ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        warn "$name did not stop within ${STOP_TIMEOUT}s, killing it."
+        if [ -n "$pgid" ]; then
+            kill -KILL -- "-$pgid" 2>/dev/null || true
+        fi
+        kill -KILL "$pid" 2>/dev/null || true
+    fi
+    rm -f "$root/backend/data/runtime/run/$name.pid"
+}
+
 lan_address() {
     hostname -I 2>/dev/null | awk '{print $1}'
 }
@@ -131,7 +182,11 @@ check_ports() {
         name="backend"
         [ "$port" = "$FRONTEND_PORT" ] && name="frontend"
         if port_in_use "$port"; then
-            die "Port $port ($name) is already in use by: $(port_owner "$port"). Stop it first (rf-gateway stop, or: ss -ltnp | grep :$port)"
+            local root
+            if root="$(rfgw_root_on_port "$port")"; then
+                die "RF Gateway ($name) is already running from $root. Stop it first: rf-gateway stop"
+            fi
+            die "Port $port ($name) is already in use by: $(port_owner "$port"). Stop it first (ss -ltnp | grep :$port)"
         fi
     done
 }
@@ -209,6 +264,16 @@ cmd_start() {
         exit 1
     fi
 
+    # Something else may have grabbed a port between the check and the start;
+    # then the health check above was answered by that other server.
+    sleep 1
+    if ! is_running "$BACKEND_PID_FILE" || ! is_running "$FRONTEND_PID_FILE"; then
+        warn "A server exited right after starting (port taken by something else?). Last log lines:"
+        tail -n 10 "$BACKEND_LOG" "$FRONTEND_LOG" >&2 || true
+        cmd_stop >/dev/null
+        die "Start failed. Check: rf-gateway status"
+    fi
+
     ok "RF Gateway is running ($mode)."
     print_urls
 }
@@ -225,6 +290,15 @@ cmd_stop() {
         stopped=1
     fi
     rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
+    # Also stop RF Gateway started from another checkout (or whose PID files are gone).
+    if rfgw_root_on_port "$FRONTEND_PORT" >/dev/null; then
+        stop_port_server "frontend" "$FRONTEND_PORT"
+        stopped=1
+    fi
+    if rfgw_root_on_port "$BACKEND_PORT" >/dev/null; then
+        stop_port_server "backend" "$BACKEND_PORT"
+        stopped=1
+    fi
     if [ "$stopped" -eq 1 ]; then
         ok "RF Gateway stopped."
     else
@@ -258,7 +332,7 @@ print_urls() {
 }
 
 cmd_status() {
-    local mode="-" running=0
+    local mode="-" running=0 root
     [ -f "$MODE_FILE" ] && mode="$(cat "$MODE_FILE")"
 
     if is_running "$BACKEND_PID_FILE"; then
@@ -270,6 +344,8 @@ cmd_status() {
         else
             warn "backend   running  pid $(read_pid "$BACKEND_PID_FILE")  port $BACKEND_PORT  (not answering /api/health)"
         fi
+    elif root="$(rfgw_root_on_port "$BACKEND_PORT")"; then
+        warn "backend   running from another checkout: $root  (rf-gateway stop stops it)"
     else
         info "backend   stopped"
     fi
@@ -277,6 +353,8 @@ cmd_status() {
     if is_running "$FRONTEND_PID_FILE"; then
         running=1
         ok "frontend  running  pid $(read_pid "$FRONTEND_PID_FILE")  port $FRONTEND_PORT  mode $mode"
+    elif root="$(rfgw_root_on_port "$FRONTEND_PORT")"; then
+        warn "frontend  running from another checkout: $root  (rf-gateway stop stops it)"
     else
         info "frontend  stopped"
     fi
@@ -342,8 +420,13 @@ cmd_run() {
 cmd_install() {
     local bin_dir="$HOME/.local/bin"
     mkdir -p "$bin_dir"
+    local previous
+    previous="$(readlink "$bin_dir/rf-gateway" 2>/dev/null || true)"
     ln -sf "$SCRIPT_PATH" "$bin_dir/rf-gateway"
     ok "Installed: $bin_dir/rf-gateway -> $SCRIPT_PATH"
+    if [ -n "$previous" ] && [ "$previous" != "$SCRIPT_PATH" ]; then
+        info "(was -> $previous)"
+    fi
     case ":$PATH:" in
         *":$bin_dir:"*) ;;
         *) warn "$bin_dir is not on PATH in this shell. Open a new login shell, or add to ~/.bashrc:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;

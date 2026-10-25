@@ -626,7 +626,7 @@ If `rf-gateway` is not found afterwards, open a new login shell, or add `export 
 | `rf-gateway status` | Process IDs, ports, `/api/health`, whether the RF runtime is active or transmitting, and the URLs. |
 | `rf-gateway logs [backend\|frontend] [-f]` | Last 50 log lines; `-f` follows them. |
 | `rf-gateway run [--preview]` | Foreground mode: starts both, shows the logs, and Ctrl+C stops both. `./scripts/run-dev.sh` does the same. |
-| `rf-gateway install` / `uninstall` | Adds or removes `~/.local/bin/rf-gateway`. |
+| `rf-gateway install` / `uninstall` | Adds or removes `~/.local/bin/rf-gateway` (pointing at this checkout). |
 
 After `start`, open the UI at `http://<pi-address>:5173`. The API docs are at `http://<pi-address>:5173/docs` (proxied to the backend).
 
@@ -652,7 +652,9 @@ Settings, as environment variables:
 RFGW_FRONTEND_PORT=8080 rf-gateway start --preview
 ```
 
-If a port is already taken, `start` stops with the name and PID of the process using it. That is often a backend or Vite started by hand: stop it, or find it with `ss -ltnp | grep -E ':8000|:5173'`.
+If a port is already taken, `start` stops and says by what. RF Gateway started from another checkout (for example a second clone or worktree), or whose PID files are gone, is recognized: `status` shows where it runs from and `stop` stops it. Anything else (for example a backend or Vite started by hand) is only reported; find it with `ss -ltnp | grep -E ':8000|:5173'`.
+
+`rf-gateway install` points `~/.local/bin/rf-gateway` at the checkout it is run from, so run `./scripts/rf-gateway install` again after switching to another clone.
 
 Stopping RF Gateway also stops any active transmission, because the backend shuts the MMDVM runtime down on exit.
 
