@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+# RF Gateway control script: one command to start / stop backend + frontend.
+#
+#   rf-gateway start            start backend and frontend in the background
+#   rf-gateway start --preview  build the frontend and serve the build (no dev server)
+#   rf-gateway stop             stop both (RF runtime is shut down cleanly)
+#   rf-gateway restart          stop, then start with the same options
+#   rf-gateway status           processes, ports, health and URLs
+#   rf-gateway logs [backend|frontend] [-f]
+#   rf-gateway run              foreground; Ctrl+C stops both
+#   rf-gateway install          add `rf-gateway` to ~/.local/bin
+#   rf-gateway uninstall        remove that link
+#
+# Settings (environment):
+#   RFGW_BACKEND_PORT  (default 8000)
+#   RFGW_FRONTEND_PORT (default 5173)
+#   RFGW_HOST          (default 0.0.0.0, the address both servers listen on)
+
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+BACKEND_DIR="$PROJECT_DIR/backend"
+FRONTEND_DIR="$PROJECT_DIR/frontend"
+VENV_DIR="$BACKEND_DIR/.venv"
+
+RUNTIME_DIR="$BACKEND_DIR/data/runtime"
+PID_DIR="$RUNTIME_DIR/run"
+LOG_DIR="$RUNTIME_DIR/logs"
+BACKEND_PID_FILE="$PID_DIR/backend.pid"
+FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
+MODE_FILE="$PID_DIR/mode"
+BACKEND_LOG="$LOG_DIR/backend.log"
+FRONTEND_LOG="$LOG_DIR/frontend.log"
+
+BACKEND_PORT="${RFGW_BACKEND_PORT:-8000}"
+FRONTEND_PORT="${RFGW_FRONTEND_PORT:-5173}"
+LISTEN_HOST="${RFGW_HOST:-0.0.0.0}"
+
+STOP_TIMEOUT=15
+START_TIMEOUT=40
+
+if [ -t 1 ]; then
+    C_OK=$'\e[32m'; C_ERR=$'\e[31m'; C_WARN=$'\e[33m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'
+else
+    C_OK=""; C_ERR=""; C_WARN=""; C_DIM=""; C_OFF=""
+fi
+
+info() { printf '%s\n' "$*"; }
+ok() { printf '%s%s%s\n' "$C_OK" "$*" "$C_OFF"; }
+warn() { printf '%s%s%s\n' "$C_WARN" "$*" "$C_OFF" >&2; }
+die() { printf '%sERROR: %s%s\n' "$C_ERR" "$*" "$C_OFF" >&2; exit 1; }
+
+usage() {
+    sed -n '2,19p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//'
+}
+
+# ----------------------------------------------------------------- helpers
+
+read_pid() {
+    local file="$1"
+    [ -f "$file" ] || return 1
+    local pid
+    pid="$(cat "$file" 2>/dev/null || true)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "$pid"
+}
+
+is_running() {
+    local pid
+    pid="$(read_pid "$1")" || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+port_in_use() {
+    ss -ltnH "sport = :$1" 2>/dev/null | grep -q .
+}
+
+port_owner() {
+    ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*users:((\(.*\)))/\1/p' | head -n 1
+}
+
+lan_address() {
+    hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+wait_for_http() {
+    local url="$1" timeout="$2" pid_file="$3" waited=0
+    while [ "$waited" -lt "$timeout" ]; do
+        if curl -fsS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
+            return 0
+        fi
+        is_running "$pid_file" || return 1
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+# Stop a process group started with setsid: SIGTERM, wait, then SIGKILL.
+stop_group() {
+    local name="$1" pid_file="$2" pid waited=0
+    pid="$(read_pid "$pid_file")" || { rm -f "$pid_file"; return 0; }
+    if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$pid_file"
+        return 0
+    fi
+    info "Stopping $name (pid $pid)..."
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$STOP_TIMEOUT" ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        warn "$name did not stop within ${STOP_TIMEOUT}s, killing it."
+        kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    fi
+    rm -f "$pid_file"
+}
+
+check_requirements() {
+    [ -x "$VENV_DIR/bin/python" ] || die "Python virtual environment not found: $VENV_DIR (run ./scripts/install-debian.sh)"
+    [ -d "$FRONTEND_DIR/node_modules" ] || die "Frontend dependencies missing (run: cd frontend && npm install)"
+    command -v curl >/dev/null || die "curl is required"
+    command -v ss >/dev/null || die "ss (iproute2) is required"
+}
+
+check_ports() {
+    local port name
+    for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+        name="backend"
+        [ "$port" = "$FRONTEND_PORT" ] && name="frontend"
+        if port_in_use "$port"; then
+            die "Port $port ($name) is already in use by: $(port_owner "$port"). Stop it first (rf-gateway stop, or: ss -ltnp | grep :$port)"
+        fi
+    done
+}
+
+backend_command() {
+    local reload="$1"
+    local args=(-m uvicorn app.main:app --host "$LISTEN_HOST" --port "$BACKEND_PORT")
+    if [ "$reload" = "yes" ]; then
+        args+=(--reload)
+    fi
+    printf '%s\0' "$VENV_DIR/bin/python" "${args[@]}"
+}
+
+# ----------------------------------------------------------------- commands
+
+cmd_start() {
+    local mode="dev"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --preview|--prod) mode="preview" ;;
+            --dev) mode="dev" ;;
+            *) die "Unknown option for start: $1" ;;
+        esac
+        shift
+    done
+
+    if is_running "$BACKEND_PID_FILE" || is_running "$FRONTEND_PID_FILE"; then
+        warn "RF Gateway is already running."
+        cmd_status
+        return 0
+    fi
+
+    check_requirements
+    check_ports
+    mkdir -p "$PID_DIR" "$LOG_DIR"
+    rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
+    printf '%s\n' "$mode" > "$MODE_FILE"
+
+    if [ "$mode" = "preview" ]; then
+        info "Building frontend..."
+        (cd "$FRONTEND_DIR" && npm run build) > "$FRONTEND_LOG" 2>&1 || die "Frontend build failed, see $FRONTEND_LOG"
+    fi
+
+    info "Starting backend on port $BACKEND_PORT..."
+    local -a backend_cmd
+    mapfile -d '' backend_cmd < <(backend_command "$([ "$mode" = "dev" ] && echo yes || echo no)")
+    (
+        cd "$BACKEND_DIR"
+        printf '\n===== %s start (%s) =====\n' "$(date -Is)" "$mode"
+        exec setsid "${backend_cmd[@]}" < /dev/null
+    ) >> "$BACKEND_LOG" 2>&1 &
+    echo $! > "$BACKEND_PID_FILE"
+
+    info "Starting frontend on port $FRONTEND_PORT..."
+    local vite_cmd="dev"
+    [ "$mode" = "preview" ] && vite_cmd="preview"
+    (
+        cd "$FRONTEND_DIR"
+        printf '\n===== %s start (%s) =====\n' "$(date -Is)" "$mode"
+        export RFGW_BACKEND_URL="http://127.0.0.1:$BACKEND_PORT"
+        exec setsid npx vite "$vite_cmd" --host "$LISTEN_HOST" --port "$FRONTEND_PORT" --strictPort < /dev/null
+    ) >> "$FRONTEND_LOG" 2>&1 &
+    echo $! > "$FRONTEND_PID_FILE"
+
+    if ! wait_for_http "http://127.0.0.1:$BACKEND_PORT/api/health" "$START_TIMEOUT" "$BACKEND_PID_FILE"; then
+        warn "Backend did not become healthy. Last log lines:"
+        tail -n 20 "$BACKEND_LOG" >&2 || true
+        cmd_stop >/dev/null
+        exit 1
+    fi
+    if ! wait_for_http "http://127.0.0.1:$FRONTEND_PORT/" "$START_TIMEOUT" "$FRONTEND_PID_FILE"; then
+        warn "Frontend did not start. Last log lines:"
+        tail -n 20 "$FRONTEND_LOG" >&2 || true
+        cmd_stop >/dev/null
+        exit 1
+    fi
+
+    ok "RF Gateway is running ($mode)."
+    print_urls
+}
+
+cmd_stop() {
+    local stopped=0
+    if is_running "$FRONTEND_PID_FILE"; then
+        stop_group "frontend" "$FRONTEND_PID_FILE"
+        stopped=1
+    fi
+    if is_running "$BACKEND_PID_FILE"; then
+        # SIGTERM lets FastAPI shut down the MMDVM runtime and route pipelines.
+        stop_group "backend" "$BACKEND_PID_FILE"
+        stopped=1
+    fi
+    rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
+    if [ "$stopped" -eq 1 ]; then
+        ok "RF Gateway stopped."
+    else
+        info "RF Gateway is not running."
+        if port_in_use "$BACKEND_PORT" || port_in_use "$FRONTEND_PORT"; then
+            warn "Something else listens on port $BACKEND_PORT or $FRONTEND_PORT (not started by this script):"
+            port_in_use "$BACKEND_PORT" && warn "  $BACKEND_PORT: $(port_owner "$BACKEND_PORT")"
+            port_in_use "$FRONTEND_PORT" && warn "  $FRONTEND_PORT: $(port_owner "$FRONTEND_PORT")"
+        fi
+    fi
+}
+
+cmd_restart() {
+    local args=("$@")
+    if [ ${#args[@]} -eq 0 ] && [ -f "$MODE_FILE" ] && [ "$(cat "$MODE_FILE")" = "preview" ]; then
+        args=(--preview)
+    fi
+    cmd_stop
+    cmd_start "${args[@]}"
+}
+
+print_urls() {
+    local host
+    host="$(lan_address)"
+    [ -n "$host" ] || host="localhost"
+    info ""
+    info "  UI:        http://$host:$FRONTEND_PORT"
+    info "  API docs:  http://$host:$FRONTEND_PORT/docs"
+    info "  Logs:      rf-gateway logs   (${LOG_DIR})"
+    info "  Stop:      rf-gateway stop"
+}
+
+cmd_status() {
+    local mode="-" running=0
+    [ -f "$MODE_FILE" ] && mode="$(cat "$MODE_FILE")"
+
+    if is_running "$BACKEND_PID_FILE"; then
+        running=1
+        local health
+        health="$(curl -fsS --max-time 3 "http://127.0.0.1:$BACKEND_PORT/api/health" 2>/dev/null || true)"
+        if [ -n "$health" ]; then
+            ok "backend   running  pid $(read_pid "$BACKEND_PID_FILE")  port $BACKEND_PORT  $health"
+        else
+            warn "backend   running  pid $(read_pid "$BACKEND_PID_FILE")  port $BACKEND_PORT  (not answering /api/health)"
+        fi
+    else
+        info "backend   stopped"
+    fi
+
+    if is_running "$FRONTEND_PID_FILE"; then
+        running=1
+        ok "frontend  running  pid $(read_pid "$FRONTEND_PID_FILE")  port $FRONTEND_PORT  mode $mode"
+    else
+        info "frontend  stopped"
+    fi
+
+    if [ "$running" -eq 1 ]; then
+        local rf
+        rf="$(curl -fsS --max-time 3 "http://127.0.0.1:$BACKEND_PORT/api/rf/status" 2>/dev/null || true)"
+        if [ -n "$rf" ]; then
+            printf '%sRF runtime: %s%s\n' "$C_DIM" "$(printf '%s' "$rf" | "$VENV_DIR/bin/python" -c 'import json,sys; d=json.load(sys.stdin); print(("ACTIVE " + str(d.get("protocol") or "").upper()) if d.get("runtime_active") else "stopped", "| TX ON" if d.get("rf_tx_active") else "")' 2>/dev/null || echo unknown)" "$C_OFF"
+        fi
+        print_urls
+    fi
+}
+
+cmd_logs() {
+    local which="all" follow=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            backend|frontend|all) which="$1" ;;
+            -f|--follow) follow="-f" ;;
+            *) die "Unknown option for logs: $1" ;;
+        esac
+        shift
+    done
+    local files=()
+    case "$which" in
+        backend) files=("$BACKEND_LOG") ;;
+        frontend) files=("$FRONTEND_LOG") ;;
+        all) files=("$BACKEND_LOG" "$FRONTEND_LOG") ;;
+    esac
+    for file in "${files[@]}"; do
+        [ -f "$file" ] || warn "No log yet: $file"
+    done
+    local existing=()
+    for file in "${files[@]}"; do
+        [ -f "$file" ] && existing+=("$file")
+    done
+    [ ${#existing[@]} -gt 0 ] || return 0
+    if [ -n "$follow" ]; then
+        exec tail -n 50 -F "${existing[@]}"
+    fi
+    tail -n 50 "${existing[@]}"
+}
+
+TAIL_PID=""
+
+cmd_run() {
+    cmd_start "$@"
+    info ""
+    info "Press Ctrl+C to stop. Showing logs:"
+    tail -n 0 -F "$BACKEND_LOG" "$FRONTEND_LOG" &
+    TAIL_PID=$!
+    trap 'echo; kill "$TAIL_PID" 2>/dev/null || true; cmd_stop; exit 0' INT TERM
+    while is_running "$BACKEND_PID_FILE" && is_running "$FRONTEND_PID_FILE"; do
+        sleep 2
+    done
+    kill "$TAIL_PID" 2>/dev/null || true
+    warn "A server exited unexpectedly; stopping RF Gateway."
+    cmd_stop
+    exit 1
+}
+
+cmd_install() {
+    local bin_dir="$HOME/.local/bin"
+    mkdir -p "$bin_dir"
+    ln -sf "$SCRIPT_PATH" "$bin_dir/rf-gateway"
+    ok "Installed: $bin_dir/rf-gateway -> $SCRIPT_PATH"
+    case ":$PATH:" in
+        *":$bin_dir:"*) ;;
+        *) warn "$bin_dir is not on PATH in this shell. Open a new login shell, or add to ~/.bashrc:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+    esac
+}
+
+cmd_uninstall() {
+    local link="$HOME/.local/bin/rf-gateway"
+    if [ -L "$link" ]; then
+        rm -f "$link"
+        ok "Removed $link"
+    else
+        info "Nothing to remove ($link is not a link)."
+    fi
+}
+
+command="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$command" in
+    start) cmd_start "$@" ;;
+    stop) cmd_stop ;;
+    restart) cmd_restart "$@" ;;
+    status) cmd_status ;;
+    logs|log) cmd_logs "$@" ;;
+    run) cmd_run "$@" ;;
+    install) cmd_install ;;
+    uninstall) cmd_uninstall ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 2 ;;
+esac

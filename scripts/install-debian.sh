@@ -577,7 +577,13 @@ echo
 echo "  config/mmdvm/"
 
 echo
-echo "Development startup:"
+echo "Start / stop RF Gateway:"
 echo
-echo "  ./scripts/run-dev.sh"
+echo "  ./scripts/rf-gateway start     (or: start --preview)"
+echo "  ./scripts/rf-gateway status"
+echo "  ./scripts/rf-gateway stop"
+echo
+echo "Install the 'rf-gateway' command for this user:"
+echo
+echo "  ./scripts/rf-gateway install"
 echo
