@@ -1,9 +1,10 @@
-"""Start / stop of the MMDVM RF runtime, shared by the RF API and routes.
+"""The transmitter: one MMDVM RF runtime, one transmit mode.
 
-A route encodes audio for its own protocol (P25, DMR, FM, ...), and
-MMDVM-Host only listens on the network port of the mode it was started
-in. Routes therefore have to run with an RF runtime in the same protocol
-on the same device; :func:`ensure_rf_runtime_for_route` takes care of it.
+The transmit mode (protocol + its saved settings, chosen on the RF Output
+page) is the only place a mode lives. Routes do not carry a protocol: when
+a route starts, the RF runtime is brought to exactly the current transmit
+mode, and restarted if anything (protocol, device or any setting) differs
+from what is running.
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ from typing import Any
 from app.config_store import mode_config_store
 from app.mmdvm import mmdvm_process_manager, validate_runtime_mode
 from app.rf import get_rf_device, rf_device_manager, validate_device_frequency
-from app.route_runtime import route_runtime_manager
 
 
 DEFAULT_CALLSIGN = "SP5OPS"
+
+# Keys that do not change what goes on air.
+_IGNORED_KEYS = {"updated_at", "protocol", "device_id"}
 
 _lock = RLock()
 
@@ -51,91 +54,133 @@ def apply_mmdvm_status(status: dict[str, Any]) -> None:
 
 def refresh_status() -> dict[str, Any]:
     apply_mmdvm_status(mmdvm_process_manager.status())
-    return runtime_state
+    status = dict(runtime_state)
+    protocol, settings = active_mode()
+    status["active_protocol"] = protocol
+    status["active_mode_summary"] = describe_mode(protocol, settings)
+    return status
 
 
-def current_runtime() -> dict[str, Any]:
-    """Protocol and device of the running RF runtime (or inactive)."""
-    status = mmdvm_process_manager.status()
-    active = bool(mmdvm_process_manager.is_running)
-    return {
-        "active": active,
-        "protocol": (status.get("protocol") or runtime_state.get("protocol")) if active else None,
-        "device_id": (status.get("device_id") or runtime_state.get("device_id")) if active else None,
-    }
+# ------------------------------------------------------------ transmit mode
+def active_mode() -> tuple[str | None, dict[str, Any] | None]:
+    protocol = mode_config_store.get_active_protocol()
+    if not protocol:
+        return None, None
+    return protocol, mode_config_store.get_mode(protocol)
 
 
-def running_routes(*, device_id: str | None = None, exclude: str | None = None) -> list[dict[str, Any]]:
-    """Routes whose source pipelines are running (i.e. sending audio)."""
-    result = []
-    for state in route_runtime_manager.list_states():
-        if state.get("state") != "running":
-            continue
-        if exclude and state.get("route_id") == exclude:
-            continue
-        if device_id and state.get("device_id") != device_id:
-            continue
-        result.append(state)
-    return result
+def require_active_mode() -> tuple[str, dict[str, Any]]:
+    protocol, settings = active_mode()
+    if not protocol:
+        raise RFControlError(400, "Choose a transmit mode on the RF Output page first")
+    if not settings:
+        raise RFControlError(400, f"{protocol.upper()} settings have not been saved yet (RF Output page)")
+    return protocol, settings
 
 
-def start_rf_runtime(protocol: str, settings: dict[str, Any], device_id: str) -> dict[str, Any]:
+def settings_signature(settings: dict[str, Any] | None) -> dict[str, Any]:
+    return {key: value for key, value in (settings or {}).items() if key not in _IGNORED_KEYS}
+
+
+def _frequency_label(settings: dict[str, Any]) -> str | None:
+    try:
+        return f"{int(settings['frequency_hz']) / 1e6:.4f} MHz"
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def describe_mode(protocol: str | None, settings: dict[str, Any] | None) -> str | None:
+    """Short human label, e.g. ``DMR · TS1 · CC15 · TG 12345 · 433.4500 MHz``."""
+    if not protocol:
+        return None
+    s = settings or {}
+    parts: list[str]
+    if protocol == "dmr":
+        target = "TG" if s.get("call_type", "group") == "group" else "ID"
+        parts = ["DMR", f"TS{s.get('timeslot', '?')}", f"CC{s.get('color_code', '?')}", f"{target} {s.get('talkgroup', '?')}"]
+    elif protocol == "p25":
+        parts = ["P25", f"NAC {s.get('nac', '?')}", f"TG {s.get('talkgroup', '?')}"]
+    elif protocol == "nxdn":
+        target = "TG" if s.get("call_type", "group") == "group" else "ID"
+        parts = ["NXDN", f"RAN {s.get('ran', '?')}", f"{target} {s.get('talkgroup', '?')}"]
+    elif protocol == "ysf":
+        parts = ["YSF", f"DG-ID {s.get('dg_id', 0)}", str(s.get("callsign") or "?")]
+    elif protocol == "dstar":
+        parts = ["D-Star", f"{s.get('callsign') or '?'} → {s.get('your_call') or 'CQCQCQ'}"]
+    elif protocol == "fm":
+        parts = ["FM", f"{s.get('deviation_khz', '?')} kHz dev"]
+        if s.get("tx_ctcss_hz"):
+            parts.append(f"CTCSS {s['tx_ctcss_hz']} Hz")
+    else:
+        parts = [protocol.upper()]
+    frequency = _frequency_label(s)
+    if frequency:
+        parts.append(frequency)
+    return " · ".join(parts)
+
+
+# ------------------------------------------------------------ RF runtime
+def runtime_matches(protocol: str, settings: dict[str, Any], device_id: str) -> bool:
+    return bool(
+        mmdvm_process_manager.is_running
+        and runtime_state.get("protocol") == protocol
+        and runtime_state.get("device_id") == device_id
+        and settings_signature(runtime_state.get("config")) == settings_signature(settings)
+    )
+
+
+def _start_runtime_unlocked(protocol: str, settings: dict[str, Any], device_id: str) -> None:
+    device = get_rf_device(device_id)
+    if device is None or not device.get("available", False) or not device.get("probe_ok", False):
+        raise RFControlError(400, f"RF device {device_id} is not available")
+
+    request_data = {**settings_signature(settings), "protocol": protocol, "device_id": device_id}
+    try:
+        validate_runtime_mode(protocol, request_data)
+        validate_device_frequency(device, int(request_data["frequency_hz"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise RFControlError(400, f"{protocol.upper()} settings: {error}") from error
+
+    try:
+        rf_device_manager.close(device_id)
+    except Exception:
+        pass
+
+    runtime_state["protocol"] = protocol
+    runtime_state["device_id"] = device_id
+    runtime_state["config"] = request_data
+
+    try:
+        status = mmdvm_process_manager.start(
+            protocol,
+            request_data,
+            device=device,
+            callsign=str(request_data.get("callsign") or DEFAULT_CALLSIGN).strip().upper(),
+        )
+    except Exception as error:
+        apply_mmdvm_status(mmdvm_process_manager.status())
+        runtime_state["error"] = str(error)
+        raise RFControlError(500, str(error)) from error
+
+    apply_mmdvm_status(status)
+    runtime_state["error"] = None
+
+
+def ensure_runtime(protocol: str, settings: dict[str, Any], device_id: str) -> str:
+    """Run exactly ``protocol``/``settings`` on ``device_id``.
+
+    Returns ``"kept"`` (already running like that), ``"started"`` or
+    ``"restarted"`` (something differed, so it was stopped first).
+    """
     protocol = str(protocol).strip().lower()
     with _lock:
-        if mmdvm_process_manager.is_running:
-            raise RFControlError(409, "RF runtime is already active")
-
-        conflicting = [
-            state for state in running_routes(device_id=device_id)
-            if str(state.get("protocol") or "").lower() != protocol
-        ]
-        if conflicting:
-            names = ", ".join(
-                f"{state.get('route_id', '')[:8]} ({str(state.get('protocol')).upper()})" for state in conflicting
-            )
-            raise RFControlError(
-                409,
-                f"Route(s) {names} are running on this device in another protocol. "
-                f"Stop them first, or change their protocol to {protocol.upper()}.",
-            )
-
-        device = get_rf_device(device_id)
-        if device is None or not device.get("available", False) or not device.get("probe_ok", False):
-            raise RFControlError(400, f"RF device {device_id} is not available")
-
-        request_data = {**settings, "protocol": protocol, "device_id": device_id}
-        try:
-            validate_runtime_mode(protocol, request_data)
-            validate_device_frequency(device, int(request_data["frequency_hz"]))
-        except (KeyError, TypeError, ValueError) as error:
-            raise RFControlError(400, str(error)) from error
-
-        mode_config_store.save_mode(protocol, request_data)
-
-        try:
-            rf_device_manager.close(device_id)
-        except Exception:
-            pass
-
-        runtime_state["protocol"] = protocol
-        runtime_state["device_id"] = device_id
-        runtime_state["config"] = request_data
-
-        try:
-            status = mmdvm_process_manager.start(
-                protocol,
-                request_data,
-                device=device,
-                callsign=str(request_data.get("callsign") or DEFAULT_CALLSIGN).strip().upper(),
-            )
-        except Exception as error:
-            apply_mmdvm_status(mmdvm_process_manager.status())
-            runtime_state["error"] = str(error)
-            raise RFControlError(500, str(error)) from error
-
-        apply_mmdvm_status(status)
-        runtime_state["error"] = None
-        return runtime_state
+        if runtime_matches(protocol, settings, device_id):
+            return "kept"
+        was_running = bool(mmdvm_process_manager.is_running)
+        if was_running:
+            stop_rf_runtime()
+        _start_runtime_unlocked(protocol, settings, device_id)
+        return "restarted" if was_running else "started"
 
 
 def stop_rf_runtime() -> dict[str, Any]:
@@ -146,65 +191,3 @@ def stop_rf_runtime() -> dict[str, Any]:
         runtime_state["config"] = None
         runtime_state["error"] = None
         return runtime_state
-
-
-def plan_for_route(route: dict[str, Any]) -> dict[str, Any]:
-    """What starting ``route`` would do to the RF runtime (no side effects)."""
-    protocol = str(route.get("protocol") or "").lower()
-    device_id = route.get("device_id")
-    runtime = current_runtime()
-    plan: dict[str, Any] = {
-        "runtime_active": runtime["active"],
-        "runtime_protocol": runtime["protocol"],
-        "runtime_device_id": runtime["device_id"],
-        "route_protocol": protocol,
-        "matches": bool(runtime["active"] and runtime["protocol"] == protocol and runtime["device_id"] == device_id),
-    }
-    if plan["matches"]:
-        plan["action"] = "none"
-        plan["message"] = None
-    elif not runtime["active"]:
-        plan["action"] = "start"
-        plan["message"] = f"Start will turn on the RF runtime in {protocol.upper()}."
-    else:
-        others = running_routes(exclude=route.get("id"))
-        if others:
-            plan["action"] = "blocked"
-            plan["message"] = (
-                f"The RF runtime is running {str(runtime['protocol']).upper()} for another route. "
-                f"Stop that route first; this route transmits {protocol.upper()}."
-            )
-        else:
-            plan["action"] = "switch"
-            plan["message"] = (
-                f"The RF runtime is running {str(runtime['protocol']).upper()}; "
-                f"Start will switch it to {protocol.upper()}."
-            )
-    return plan
-
-
-def ensure_rf_runtime_for_route(route: dict[str, Any]) -> dict[str, Any]:
-    """Make the RF runtime run the route's protocol on the route's device."""
-    with _lock:
-        plan = plan_for_route(route)
-        action = plan["action"]
-        if action == "none":
-            return plan
-        if action == "blocked":
-            raise RFControlError(409, plan["message"])
-
-        protocol = plan["route_protocol"]
-        settings = mode_config_store.get_mode(protocol)
-        if not settings:
-            raise RFControlError(400, f"{protocol.upper()} settings have not been saved (RF Output page)")
-
-        if action == "switch":
-            stop_rf_runtime()
-
-        start_rf_runtime(protocol, settings, route["device_id"])
-        plan["message"] = (
-            f"RF runtime switched from {str(plan['runtime_protocol']).upper()} to {protocol.upper()}"
-            if action == "switch"
-            else f"RF runtime started in {protocol.upper()}"
-        )
-        return plan

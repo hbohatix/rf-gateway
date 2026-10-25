@@ -5,7 +5,7 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import RLock
+from threading import RLock, Timer
 from typing import Literal
 
 import yaml
@@ -67,7 +67,14 @@ from app.sources import (
 )
 from app.direct_audio_client import validate_direct_audio_url
 from app.voice.registry import STREAMING_PROTOCOLS, supports_streaming
-from app.rf_control import RFControlError, ensure_rf_runtime_for_route, plan_for_route
+from app.rf_control import (
+    RFControlError,
+    active_mode,
+    ensure_runtime,
+    require_active_mode,
+    runtime_matches,
+    stop_rf_runtime,
+)
 from app.remote_sdr import parse_remote_sdr_url, probe_remote_sdr
 from app.sources import looks_like_remote_sdr_url
 
@@ -532,22 +539,6 @@ def run_preflight(
             mode_config=mode_config,
         )
     )
-
-    # Routes only reach the air when MMDVM runs the route's protocol on the
-    # route's device; report what START will do with the RF runtime.
-    plan = plan_for_route(route)
-    runtime["rf_runtime"] = plan
-
-    if (
-        runtime.get("state") == "ready"
-        and plan["action"] == "blocked"
-    ):
-        runtime = route_runtime_manager.mark_blocked(
-            route["id"],
-            "rf_runtime_busy",
-            plan["message"],
-        )
-        runtime["rf_runtime"] = plan
 
     return runtime
 
@@ -1376,10 +1367,7 @@ def get_route_runtime(
     )
 
     return {
-        "runtime": {
-            **route_runtime_manager.get(route_id),
-            "rf_runtime": plan_for_route(route),
-        },
+        "runtime": route_runtime_manager.get(route_id),
         "rf_tx": live_rf_tx_status(),
 
         "worker":
@@ -1722,406 +1710,217 @@ def stop_route_worker(
     }
 
 
-@router.post(
-    "/{route_id}/start"
-)
-def start_route(
-    route_id: str,
-):
-    route = get_route_or_404(
-        route_id
-    )
+# ------------------------------------------------------------------
+# One transmitter, one transmit mode.
+#
+# A route is only "this source on this device". It is always sent in the
+# transmit mode chosen on the RF Output page (protocol + saved settings).
+# Starting a route takes the transmitter over: whatever else is on air is
+# stopped and MMDVM is (re)started with exactly the current mode. Stopping
+# the route turns the transmitter off.
+# ------------------------------------------------------------------
 
-    # START is an explicit user action; it enables a disabled route in
-    # the same operation, so a separate ENABLE click is not required.
-    if not route.get("enabled", False):
-        update_route(route_id, RouteUpdateRequest(enabled=True))
+TRANSMIT_LOCK = RLock()
+ON_AIR_STATES = ("starting", "running")
+
+
+def _on_air_route_ids(exclude: str | None = None) -> list[str]:
+    return [
+        state["route_id"]
+        for state in route_runtime_manager.list_states()
+        if state.get("state") in ON_AIR_STATES and state.get("route_id") != exclude
+    ]
+
+
+def _halt_route(route_id: str, *, clear_queue: bool) -> dict:
+    """Stop a route's source pipeline and forget its runtime state."""
+    result = stop_source_pipeline(route_id, clear_queue=clear_queue)
+    # Drop the pipeline object so the next start uses the current mode.
+    broadcastify_live_audio_pipeline_manager.remove(route_id)
+    result["runtime"] = route_runtime_manager.stop(route_id)
+    return result
+
+
+def _sync_route_to_mode(route: dict, protocol: str, device_id: str | None) -> dict:
+    """Store the protocol/device the route is about to be sent with."""
+    changes = {"protocol": protocol, "enabled": True}
+    if device_id:
+        changes["device_id"] = device_id
+    if all(route.get(key) == value for key, value in changes.items()):
+        return route
+    store = load_store()
+    for item in store.get("routes", []):
+        if item.get("id") == route["id"]:
+            item.update(changes)
+            item["updated_at"] = utc_now()
+            route = dict(item)
+    save_store(store)
+    return route
+
+
+def _start_failed(route: dict, message: str, runtime: dict | None = None) -> dict:
+    route_id = route["id"]
+    if runtime is None:
+        runtime = route_runtime_manager.mark_error(route_id, message)
+    return {
+        "started": False,
+        "worker_started": False,
+        "processor_started": False,
+        "live_audio_started": False,
+        "route": route,
+        "runtime": runtime,
+        "worker": get_worker_status(route_id),
+        "processor": get_processor_status(route_id),
+        "live_audio": get_live_audio_status(route_id),
+        "queue": get_queue_status(route_id),
+        "message": message,
+    }
+
+
+def start_route_on_air(route_id: str, device_id: str | None = None) -> dict:
+    with TRANSMIT_LOCK:
         route = get_route_or_404(route_id)
+        try:
+            protocol, settings = require_active_mode()
+        except RFControlError as error:
+            return _start_failed(route, str(error))
 
-    runtime = run_preflight(
-        route
-    )
+        route = _sync_route_to_mode(route, protocol, device_id)
 
-    if (
-        runtime.get(
-            "state"
-        )
-        != "ready"
-    ):
+        # Take the transmitter over: stop everything else (and this route,
+        # so a restart picks up the current mode).
+        for other_id in _on_air_route_ids(exclude=route_id):
+            _halt_route(other_id, clear_queue=True)
+        _halt_route(route_id, clear_queue=False)
+
+        runtime = run_preflight(route)
+        if runtime.get("state") != "ready":
+            stop_rf_runtime()
+            reason = runtime.get("error") or runtime.get("blocked_reason") or "preflight failed"
+            return _start_failed(route, f"Not ready: {reason}", runtime)
+
+        try:
+            ensure_runtime(protocol, settings, route["device_id"])
+        except RFControlError as error:
+            return _start_failed(route, f"RF: {error}")
+
+        source = get_source_or_404(route["source_id"])
+        pipeline_result = start_source_pipeline(route, source)
+        if not source_pipeline_running(pipeline_result):
+            _halt_route(route_id, clear_queue=False)
+            stop_rf_runtime()
+            return _start_failed(route, "Source pipeline did not reach running state")
+
+        try:
+            runtime = route_runtime_manager.mark_running(route_id)
+        except Exception as error:
+            _halt_route(route_id, clear_queue=False)
+            stop_rf_runtime()
+            return _start_failed(route, f"Unable to mark route as running: {error}")
+
+        worker_status = pipeline_result.get("worker")
+        processor_status = pipeline_result.get("processor")
+        live_audio_status = pipeline_result.get("live_audio")
         return {
-            "started":
-                False,
-
-            "worker_started":
-                False,
-
-            "processor_started":
-                False,
-
-            "live_audio_started":
-                False,
-
-            "route":
-                route,
-
-            "runtime":
-                runtime,
-
-            "worker":
-                get_worker_status(
-                    route_id
-                ),
-
-            "processor":
-                get_processor_status(
-                    route_id
-                ),
-
-            "live_audio":
-                get_live_audio_status(
-                    route_id
-                ),
-
-            "queue":
-                get_queue_status(
-                    route_id
-                ),
-
-            "message":
-                (
-                    "Route runtime "
-                    "preflight failed"
-                ),
-        }
-
-    # Bring the RF runtime to the route's protocol and device first;
-    # otherwise MMDVM-Host would silently ignore the route's audio.
-    try:
-        rf_plan = ensure_rf_runtime_for_route(route)
-    except RFControlError as error:
-        runtime = route_runtime_manager.mark_error(
-            route_id,
-            str(error),
-        )
-        return {
-            "started": False,
-            "worker_started": False,
-            "processor_started": False,
-            "live_audio_started": False,
+            "started": True,
+            "source_type": pipeline_result.get("source_type"),
+            "worker_started": bool(worker_status and worker_status.get("running")),
+            "processor_started": bool(processor_status and processor_status.get("running")),
+            "live_audio_started": bool(live_audio_status and live_audio_status.get("running")),
             "route": route,
             "runtime": runtime,
-            "worker": get_worker_status(route_id),
-            "processor": get_processor_status(route_id),
-            "live_audio": get_live_audio_status(route_id),
+            "worker": worker_status,
+            "processor": processor_status,
+            "live_audio": live_audio_status,
             "queue": get_queue_status(route_id),
-            "message": f"RF runtime: {error}",
+            "message": f"On air in {protocol.upper()}",
         }
 
-    source = (
-        get_source_or_404(
-            route[
-                "source_id"
+
+def stop_all_transmission() -> dict:
+    """Turn everything off: every route and the RF runtime."""
+    with TRANSMIT_LOCK:
+        stopped = _on_air_route_ids()
+        for route_id in stopped:
+            _halt_route(route_id, clear_queue=True)
+        stop_rf_runtime()
+        return {"stopped_routes": stopped}
+
+
+def apply_transmit_mode() -> dict:
+    """Bring what is on air to the current transmit mode (no-op if it is)."""
+    from app.rf_control import mmdvm_process_manager, runtime_state
+
+    with TRANSMIT_LOCK:
+        protocol, settings = active_mode()
+        on_air = _on_air_route_ids()
+
+        if not protocol or not settings:
+            if on_air or mmdvm_process_manager.is_running:
+                stop_all_transmission()
+                return {"action": "stopped"}
+            return {"action": "none"}
+
+        if on_air:
+            states = {state["route_id"]: state for state in route_runtime_manager.list_states()}
+            restart = [
+                route_id for route_id in on_air
+                if states[route_id].get("protocol") != protocol
+                or not runtime_matches(protocol, settings, states[route_id].get("device_id"))
             ]
-        )
-    )
+            for route_id in restart:
+                start_route_on_air(route_id)
+            return {"action": "restarted" if restart else "none", "routes": restart}
 
-    pipeline_result = (
-        start_source_pipeline(
-            route,
-            source,
-        )
-    )
-
-    source_type = (
-        pipeline_result.get(
-            "source_type"
-        )
-    )
-
-    worker_status = (
-        pipeline_result.get(
-            "worker"
-        )
-    )
-
-    processor_status = (
-        pipeline_result.get(
-            "processor"
-        )
-    )
-
-    live_audio_status = (
-        pipeline_result.get(
-            "live_audio"
-        )
-    )
+        device_id = runtime_state.get("device_id")
+        if mmdvm_process_manager.is_running and device_id and not runtime_matches(protocol, settings, device_id):
+            ensure_runtime(protocol, settings, device_id)
+            return {"action": "runtime_restarted"}
+        return {"action": "none"}
 
 
-    worker_running = bool(
-        worker_status
-        and
-        worker_status.get(
-            "running",
-            False,
-        )
-    )
-
-    processor_running = bool(
-        processor_status
-        and
-        processor_status.get(
-            "running",
-            False,
-        )
-    )
-
-    live_audio_running = bool(
-        live_audio_status
-        and
-        live_audio_status.get(
-            "running",
-            False,
-        )
-    )
-
-    pipeline_running = (
-        source_pipeline_running(
-            pipeline_result
-        )
-    )
+_apply_timer: Timer | None = None
 
 
-    if not pipeline_running:
-        stop_source_pipeline(
-            route_id,
-            clear_queue=False,
-        )
+def schedule_transmit_apply(delay: float = 1.5) -> None:
+    """Debounced :func:`apply_transmit_mode` (settings are autosaved per keystroke)."""
+    global _apply_timer
 
-        error = (
-            "Source pipeline did not "
-            "reach running state"
-        )
-
+    def run() -> None:
         try:
-            runtime = (
-                route_runtime_manager
-                .mark_error(
-                    route_id,
-                    error,
-                )
-            )
+            apply_transmit_mode()
+        except Exception as error:  # background thread: log, never raise
+            print(f"[transmit] applying the transmit mode failed: {error}", flush=True)
 
-        except Exception:
-            runtime = (
-                route_runtime_manager
-                .get(
-                    route_id
-                )
-            )
+    with TRANSMIT_LOCK:
+        if _apply_timer is not None:
+            _apply_timer.cancel()
+        _apply_timer = Timer(delay, run)
+        _apply_timer.daemon = True
+        _apply_timer.start()
 
+
+@router.post("/{route_id}/start")
+def start_route(route_id: str):
+    return start_route_on_air(route_id)
+
+
+@router.post("/{route_id}/stop")
+def stop_route(route_id: str):
+    with TRANSMIT_LOCK:
+        route = get_route_or_404(route_id)
+        result = _halt_route(route_id, clear_queue=True)
+        if not _on_air_route_ids():
+            stop_rf_runtime()
         return {
-            "started":
-                False,
-
-            "source_type":
-                source_type,
-
-            "worker_started":
-                worker_running,
-
-            "processor_started":
-                processor_running,
-
-            "live_audio_started":
-                live_audio_running,
-
-            "route":
-                route,
-
-            "runtime":
-                runtime,
-
-            "worker":
-                get_worker_status(
-                    route_id
-                ),
-
-            "processor":
-                get_processor_status(
-                    route_id
-                ),
-
-            "live_audio":
-                get_live_audio_status(
-                    route_id
-                ),
-
-            "queue":
-                get_queue_status(
-                    route_id
-                ),
-
-            "message":
-                error,
+            "stopped": True,
+            "route": route,
+            "runtime": result["runtime"],
+            "worker": result["worker"],
+            "processor": result["processor"],
+            "live_audio": result["live_audio"],
+            "queue": {"clear": result["queue_clear"], "stats": result["queue"]},
         }
-
-
-    try:
-        runtime = (
-            route_runtime_manager
-            .mark_running(
-                route_id
-            )
-        )
-
-    except Exception as error:
-        stop_source_pipeline(
-            route_id,
-            clear_queue=False,
-        )
-
-        message = (
-            "Unable to mark route "
-            f"runtime as running: {error}"
-        )
-
-        try:
-            runtime = (
-                route_runtime_manager
-                .mark_error(
-                    route_id,
-                    message,
-                )
-            )
-
-        except Exception:
-            runtime = (
-                route_runtime_manager
-                .get(
-                    route_id
-                )
-            )
-
-        raise HTTPException(
-            status_code=500,
-            detail=message,
-        ) from error
-
-
-    runtime = {
-        **runtime,
-        "rf_runtime": rf_plan,
-    }
-
-    return {
-        "started":
-            True,
-
-        "rf_runtime_message":
-            rf_plan.get("message"),
-
-        "source_type":
-            source_type,
-
-        "worker_started":
-            worker_running,
-
-        "processor_started":
-            processor_running,
-
-        "live_audio_started":
-            live_audio_running,
-
-        "route":
-            route,
-
-        "runtime":
-            runtime,
-
-        "worker":
-            worker_status,
-
-        "processor":
-            processor_status,
-
-        "live_audio":
-            live_audio_status,
-
-        "queue":
-            get_queue_status(
-                route_id
-            ),
-
-        "message":
-            (
-                "Route source pipeline "
-                "started successfully"
-            ),
-    }
-
-
-@router.post(
-    "/{route_id}/stop"
-)
-def stop_route(
-    route_id: str,
-):
-    route = get_route_or_404(
-        route_id
-    )
-
-    result = (
-        stop_source_pipeline(
-            route_id,
-            clear_queue=True,
-        )
-    )
-
-    runtime = (
-        route_runtime_manager
-        .stop(
-            route_id
-        )
-    )
-
-    return {
-        "stopped":
-            True,
-
-        "route":
-            route,
-
-        "runtime":
-            runtime,
-
-        "worker":
-            result[
-                "worker"
-            ],
-
-        "processor":
-            result[
-                "processor"
-            ],
-
-        "live_audio":
-            result[
-                "live_audio"
-            ],
-
-        "queue":
-            {
-                "clear":
-                    result[
-                        "queue_clear"
-                    ],
-
-                "stats":
-                    result[
-                        "queue"
-                    ],
-            },
-    }
 
 
 @router.put(

@@ -18,7 +18,6 @@ export type ShellStatus = {
   protocolLabel: string | null;
   frequencyLabel: string | null;
   deviceLabel: string | null;
-  routeCount: number;
   sourceCount: number;
   deviceCount: number;
 };
@@ -51,25 +50,16 @@ export default function AppShell({
 
   const sections: NavSection[] = [
     {
-      label: "nav.monitor",
-      items: [
-        { id: "dashboard", icon: "dashboard" },
-        { id: "routes", icon: "routes", badge: status.routeCount || undefined },
-        { id: "telemetry", icon: "telemetry", badge: status.rfTxActive ? "TX" : undefined, badgeWarn: true },
-      ],
-    },
-    {
       label: "nav.radio",
       items: [
-        { id: "modes", icon: "radio" },
-        { id: "devices", icon: "device", badge: status.deviceCount || undefined },
-      ],
-    },
-    {
-      label: "nav.sources",
-      items: [
+        {
+          id: "transmit",
+          icon: "radio",
+          badge: status.rfTxActive ? "TX" : status.sourceCount || undefined,
+          badgeWarn: status.rfTxActive,
+        },
         { id: "remote_sdr", icon: "sdr" },
-        { id: "sources", icon: "source", badge: status.sourceCount || undefined },
+        { id: "devices", icon: "device", badge: status.deviceCount || undefined },
       ],
     },
     {

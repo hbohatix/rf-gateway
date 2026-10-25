@@ -164,7 +164,7 @@ Every mode takes 8 kHz mono PCM from a route (Calls, Live/HTTP audio or remote S
 
 How each path is built:
 
-- **DMR** — voice LC header (full LC, BPTC(196,96), RS(12,9)), voice bursts A–F with three FEC-protected AMBE+2 frames each, terminator with LC. MMDVM-Host regenerates sync, slot type, EMB and embedded LC. Simplex (DMO) hotspots transmit on **TS2** only.
+- **DMR** — voice LC header (full LC, BPTC(196,96), RS(12,9)), voice bursts A–F with three FEC-protected AMBE+2 frames each, terminator with LC. MMDVM-Host regenerates sync, slot type, EMB and embedded LC. DMR runs MMDVM-Host with `Duplex=1`, so it goes out like a repeater downlink (BS sync, CACH, both timeslots) and **TS1 and TS2** both work; program the radio with the frequency, color code and timeslot. (In simplex/DMO MMDVM-Host drops all network TS1 traffic.)
 - **System Fusion** — DN (V/D mode 2) frames: FICH (Golay + K=5 convolution + interleave), callsign DCH, VCH with 27 bits ×3 repetition, whitening and interleaving; header and terminator with CSD1/CSD2. Source callsign, destination and DG-ID are configurable.
 - **D-Star** — radio header with X.25 CRC (MY / suffix / YOUR / DIRECT), AMBE 2400 frames with Golay + PRNG FEC, slow-data sync and a 20-character text message.
 - **NXDN** — VCALL header and TX_REL terminator in FACCH1, voice frames with four AMBE+2 frames and the VCALL message split over the SACCH superframe (MMDVM-Host adds the NXDN FEC).
@@ -175,7 +175,7 @@ Long continuous audio is split into back-to-back transmissions every 150 s (belo
 
 ### AMBE vocoder options
 
-The default **software** encoder is OP25's AMBE encoder (`backend/native/ambe`, see its README for provenance and licensing), so no hardware is needed. For AMBE+2 modes (DMR, YSF, NXDN) a DVSI AMBE-3000 can be selected instead in **RF Output** (experimental, not yet validated with hardware):
+The default **software** encoder is OP25's AMBE encoder (`backend/native/ambe`, see its README for provenance and licensing), so no hardware is needed. For AMBE+2 modes (DMR, YSF, NXDN) a DVSI AMBE-3000 can be selected instead in the transmit mode settings (experimental, not yet validated with hardware):
 
 - `dv3000_serial` — ThumbDV / DV3000 / DVstick on a serial port (e.g. `/dev/ttyUSB0`, 460800 baud),
 - `ambeserver` — an AMBE-3000 behind AMBEServer on UDP (default port 2460).
@@ -206,18 +206,12 @@ A remote SDR can also be the **transmitter**. **RF Devices → Network SDR (TX)*
 
 ## Web UI
 
-The UI follows the TETRA FlowStation dashboard: a collapsible sidebar (Monitor / Radio / Sources / System), a status topbar, Dark / Light / Blue themes and Polish / English labels for the main screens.
+One screen does the job: **Transmit**.
 
-| Page | Contents |
-|---|---|
-| Dashboard | runtime hero, routes / sources / devices / mode tiles, telemetry, voice-path readiness per protocol |
-| Routes | route setup, Calls catalog, preflight, start/stop, RF TX monitor |
-| Telemetry | MMDVM-IQ / MMDVM-Host runtime figures |
-| RF Output | protocol selector (FM, DMR, YSF, D-Star, NXDN, P25, TETRA), per-mode settings (auto-saved), vocoder selection, start/stop/calibrate |
-| RF Devices | SoapySDR and MMDVM modem discovery |
-| Remote SDR | URL builder for rtl_tcp / KiwiSDR / audio streams, probe, save |
-| Saved Sources | all stored sources |
-| MMDVM Log | live MMDVM-Host / MMDVM-IQ log with filter |
+- **Transmit mode** (right): pick DMR, P25, FM, YSF, D-Star or NXDN and set it up (frequency, slot, color code, talkgroup, NAC, …). This is the only place a mode lives; settings save automatically and apply immediately, also to what is on air.
+- **Sources** (left): paste a Broadcastify Calls playlist, Broadcastify Live feed, HTTP/HLS stream or remote SDR URL and press **Add**. Press **▶ Transmit** on a source to put it on air in the current mode. One source is on air at a time: starting another takes the transmitter over. **■ Stop** / **Turn everything off** stops the source and MMDVM.
+
+Other pages: **Remote SDR** (URL builder and probe for rtl_tcp / KiwiSDR / audio streams), **RF Devices** (SoapySDR and MMDVM modem discovery), **MMDVM Log**. The UI has Dark / Light / Blue themes and Polish / English labels.
 
 The frontend calls the API on its own origin (`/api/...`); Vite proxies `/api`, `/docs` and `/openapi.json` to the backend (`RFGW_BACKEND_URL`, default `http://127.0.0.1:8000`) in both `npm run dev` and `npm run preview`. Set `VITE_API_BASE_URL` to call a backend directly instead.
 
@@ -1092,16 +1086,15 @@ Delete a source.
 
 ## Unified Route Setup (recommended)
 
-**Route protocol and the RF runtime.** MMDVM-Host runs one mode at a time and only listens on that mode's network port, so a route's audio reaches the air only when the RF runtime runs the route's protocol on the route's RF device. **Start** on a route takes care of this:
+**One transmitter, one transmit mode.** Routes no longer carry their own protocol. Every route is sent in the transmit mode chosen in the UI (`PUT /api/transmit/mode`, settings from `PUT /api/config/modes`):
 
-- RF runtime stopped → it is started in the route's protocol, using the settings saved on the RF Output page;
-- RF runtime running another protocol and no other route running → it is switched to the route's protocol;
-- another route is already running → the start is refused with an explanation (one route per transmitter).
+- **Start** on a route stops whatever else is on air, then (re)starts MMDVM with exactly the current mode and settings (restarted if anything differs) and starts the source;
+- **Stop** stops the route and MMDVM; `POST /api/rf/stop` and `POST /api/transmit/stop` turn everything off;
+- changing the mode or its settings while on air restarts the running route in the new mode.
 
-Each route card shows `RF OUTPUT: … · ROUTE: …` and what Start will do. Starting the RF runtime by hand in a protocol that differs from a running route is refused. A route only reserves its RF device while it is running; passing preflight no longer blocks other routes.
+The UI uses the simpler `/api/transmit` API (`GET /api/transmit`, `PUT /api/transmit/mode`, `PUT /api/transmit/device`, `POST /api/transmit/start {source_id}`, `POST /api/transmit/stop`, `GET|POST /api/transmit/sources`, `DELETE /api/transmit/sources/{id}`); it creates one route per source behind the scenes. The route endpoints below remain for scripts.
 
-
-The **Routes** panel is now the primary workflow. In one form, paste a Broadcastify Calls playlist or Live Audio feed URL (or choose an existing source), select the RF device and protocol, then choose **Create Route** or explicitly opt into **Create & Start**. The **Sources** panel remains accessible as an advanced section for manual probing/deletion.
+`POST /api/routes/setup` registers a source and its route in one request (the `protocol` field is stored but the transmit mode decides what goes on air).
 
 The backend preserves existing `sources.json`, `routes.yaml`, and old API endpoints; **no migration or duplicate manual activation** is necessary. An existing source with the same normalized URL is reused.
 
@@ -1121,11 +1114,9 @@ You can instead send `"source_id": "EXISTING_SOURCE_ID"` (not both) and an optio
 
 Pressing **Start** on an existing disabled route now enables and starts it in the same operation. Broadcastify Live Audio sources that require browser sign-in remain blocked; use appropriately licensed Calls API access where applicable.
 
-### Edit or delete from Routes
+### Edit or delete routes (API)
 
-Expand a route and choose **Edit** to change its name, RF device, protocol and source (reuse an existing source or paste a new Broadcastify URL). The backend uses `PUT /api/routes/{route_id}/setup` and preserves the route ID. Edits require the route to be stopped; **Save Changes does not start RF**. Editing a route does not modify the source of any other route.
-
-Deleting a route from the UI asks for confirmation and calls `DELETE /api/routes/{route_id}?cleanup_source=true`. If the source is still used by other routes it is preserved; otherwise the now-unused source is deleted. The old DELETE endpoint without the optional flag still removes only the route. Advanced Sources now refuses to delete a source referenced by a route (HTTP 409), preventing broken configurations.
+`PUT /api/routes/{route_id}/setup` changes a stopped route's name, RF device and source, keeping its ID. `DELETE /api/routes/{route_id}?cleanup_source=true` removes a route and its source when no other route uses it. Deleting a source in the UI (`DELETE /api/transmit/sources/{id}`) stops it and removes its routes first.
 
 **Data safety:** sources and routes are still stored in separate files. The server performs best-effort cleanup after partial failures; this is not a cross-file database transaction. Back up `backend/data/sources.json` and `backend/data/routes.yaml` before testing changes.
 
@@ -1652,7 +1643,7 @@ curl -s \
 ```
 ### Calls processing counters
 
-The Routes panel distinguishes **Received / Enqueued / Duplicates** from **Completed / Dequeued / Dropped / Cleared**. Clearing the queue (for example on route stop) no longer makes calls silently disappear from accounting; `total_cleared` tracks removals from that point onward, not historical removals before this version. During a call, the *last P25 records* field reports the latest successful P25 **network handoff** to MMDVM, not proof of transmission on an RF antenna. Actual on-air TX should be checked at MMDVM/radio.
+The Calls queue distinguishes **Received / Enqueued / Duplicates** from **Completed / Dequeued / Dropped / Cleared**. Clearing the queue (for example on route stop) no longer makes calls silently disappear from accounting; `total_cleared` tracks removals from that point onward, not historical removals before this version. During a call, the *last P25 records* field reports the latest successful P25 **network handoff** to MMDVM, not proof of transmission on an RF antenna. Actual on-air TX should be checked at MMDVM/radio.
 
 ## Calls selectors directly in Routes
 

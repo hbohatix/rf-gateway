@@ -198,12 +198,6 @@ def validate_runtime_mode(
                 "DMR Timeslot must be 1 or 2"
             )
 
-        if timeslot != 2:
-            raise ValueError(
-                "This simplex (DMO) hotspot transmits on "
-                "DMR Timeslot 2 only; MMDVM-Host drops "
-                "Timeslot 1 traffic when Duplex=0"
-            )
 
     if protocol == "p25":
         _normalize_nac(
@@ -529,11 +523,18 @@ def render_mmdvm_host_config(
         ]
     )
 
+    # DMR is sent as a repeater downlink (Duplex=1: BS sync, CACH, both
+    # timeslots), so TS1 and TS2 both work like on any repeater channel.
+    # In simplex (DMO) MMDVM-Host drops all network TS1 traffic.
+    duplex = 1 if protocol == "dmr" else 0
+    dmr_slot1 = 1 if protocol == "dmr" else 0
+    dmr_slot2 = 1
+
     body = f"""[General]
 Callsign={callsign}
 Id={radio_id}
 Timeout=180
-Duplex=0
+Duplex={duplex}
 Daemon=0
 
 [Info]
@@ -652,8 +653,8 @@ LocalPort={DMR_NETWORK_LOCAL_PORT}
 GatewayAddress=127.0.0.1
 GatewayPort={DMR_NETWORK_GATEWAY_PORT}
 Jitter=360
-Slot1=0
-Slot2=1
+Slot1={dmr_slot1}
+Slot2={dmr_slot2}
 Debug=0
 
 [D-Star Network]

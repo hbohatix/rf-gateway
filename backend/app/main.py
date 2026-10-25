@@ -70,10 +70,9 @@ from app.call_processor import (
 
 from app.rf_control import (
     RFControlError,
+    ensure_runtime,
     refresh_status,
     runtime_state,
-    start_rf_runtime,
-    stop_rf_runtime,
 )
 
 from app.audio_bridge import (
@@ -112,7 +111,14 @@ from app.sources import (
 )
 
 from app.routes import (
+    apply_transmit_mode,
     router as routes_router,
+    schedule_transmit_apply,
+    stop_all_transmission,
+)
+
+from app.transmit import (
+    router as transmit_router,
 )
 
 
@@ -170,6 +176,10 @@ app.include_router(
 
 app.include_router(
     routes_router
+)
+
+app.include_router(
+    transmit_router
 )
 
 
@@ -699,6 +709,10 @@ def save_mode_config(
         )
     )
 
+    # Editing the transmit mode applies it to whatever is on air.
+    if protocol == mode_config_store.get_active_protocol():
+        schedule_transmit_apply()
+
     return {
         "protocol": protocol,
         "config": saved,
@@ -1078,24 +1092,32 @@ async def rf_status():
 
 
 @app.post("/api/rf/start")
-async def rf_start(
+def rf_start(
     request: RFStartRequest,
 ):
+    """Select ``protocol`` as the transmit mode and run the transmitter in it.
+
+    Anything already on air follows the new mode.
+    """
     request_data = request.model_dump()
     device_id = request_data.pop("device_id")
+    protocol = request.protocol
+    mode_config_store.save_mode(protocol, request_data)
+    mode_config_store.set_active_protocol(protocol)
+    mode_config_store.set_active_device(device_id)
     try:
-        return start_rf_runtime(
-            request.protocol,
-            request_data,
-            device_id,
-        )
+        if apply_transmit_mode().get("action") == "none":
+            ensure_runtime(protocol, mode_config_store.get_mode(protocol) or {}, device_id)
     except RFControlError as error:
         raise HTTPException(
             status_code=error.status_code,
             detail=str(error),
         ) from error
+    return refresh_status()
 
 
 @app.post("/api/rf/stop")
-async def rf_stop():
-    return stop_rf_runtime()
+def rf_stop():
+    """Turn everything off: every route and the transmitter."""
+    stop_all_transmission()
+    return refresh_status()
