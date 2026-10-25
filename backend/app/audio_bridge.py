@@ -1189,5 +1189,7 @@ def _stream_decoded_audio(
         "duration_seconds": len(pcm) / (PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH_BYTES),
         "transmitted_duration_seconds": time.monotonic() - started,
         "network_records_sent": status.get("network_records_sent"),
+        # Same key as the P25 bridge result, read by the route TX monitor.
+        "network_records": status.get("network_records_sent"),
         "session": status,
     }

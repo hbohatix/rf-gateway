@@ -105,6 +105,17 @@ export interface RouteRuntimeStatus {
 
   runtime_ready: boolean;
 
+  // What START does with the MMDVM RF runtime (protocol / device match).
+  rf_runtime?: {
+    runtime_active: boolean;
+    runtime_protocol: string | null;
+    runtime_device_id: string | null;
+    route_protocol: string;
+    matches: boolean;
+    action: "none" | "start" | "switch" | "blocked";
+    message: string | null;
+  } | null;
+
   blocked_reason:
     string
     | null;

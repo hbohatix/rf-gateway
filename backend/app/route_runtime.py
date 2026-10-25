@@ -20,6 +20,14 @@ ACTIVE_STATES = {
     "running",
 }
 
+# Only routes that are actually running hold the RF device. A route that has
+# merely passed preflight ("ready") must not block other routes, otherwise
+# preflighting several routes locks the device for whichever came first.
+RESERVING_STATES = {
+    "starting",
+    "running",
+}
+
 
 def utc_now() -> str:
     return (
@@ -178,7 +186,7 @@ class RouteRuntimeManager:
                     state.get(
                         "state"
                     )
-                    in ACTIVE_STATES
+                    in RESERVING_STATES
                 ):
                     return (
                         other_route_id
@@ -641,6 +649,21 @@ class RouteRuntimeManager:
             route_id,
             state,
         )
+
+
+    def mark_blocked(
+        self,
+        route_id: str,
+        reason: str,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        state = self.get(route_id)
+        state["state"] = "blocked"
+        state["active"] = False
+        state["runtime_ready"] = False
+        state["blocked_reason"] = reason
+        state["error"] = error
+        return self._set_state(route_id, state)
 
 
     def stop(

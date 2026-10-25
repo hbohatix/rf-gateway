@@ -68,6 +68,14 @@ from app.call_processor import (
     call_processor_manager,
 )
 
+from app.rf_control import (
+    RFControlError,
+    refresh_status,
+    runtime_state,
+    start_rf_runtime,
+    stop_rf_runtime,
+)
+
 from app.audio_bridge import (
     get_all_audio_bridge_capabilities,
 )
@@ -576,24 +584,6 @@ class CWTestRequest(BaseModel):
     )
 
 
-runtime_state = {
-    "tx": False,
-
-    "runtime_active": False,
-    "rf_tx_active": False,
-
-    "tx_stream_active": False,
-
-    "protocol": None,
-    "device_id": None,
-
-    "config": None,
-
-    "mmdvm": None,
-    "error": None,
-}
-
-
 def device_exists(
     device_id: str,
 ) -> bool:
@@ -636,44 +626,6 @@ def ensure_direct_soapy_available():
                 "the MMDVM runtime"
             ),
         )
-
-
-def apply_mmdvm_status(
-    status: dict,
-) -> None:
-    runtime_active = bool(
-        status.get(
-            "runtime_active",
-            False,
-        )
-    )
-
-    rf_tx_active = bool(
-        status.get(
-            "rf_tx_active",
-            False,
-        )
-    )
-
-    runtime_state[
-        "runtime_active"
-    ] = runtime_active
-
-    runtime_state[
-        "rf_tx_active"
-    ] = rf_tx_active
-
-    runtime_state[
-        "tx_stream_active"
-    ] = rf_tx_active
-
-    runtime_state[
-        "tx"
-    ] = rf_tx_active
-
-    runtime_state[
-        "mmdvm"
-    ] = status
 
 
 @app.get("/")
@@ -1122,176 +1074,28 @@ def calibration_cw_id(
 
 @app.get("/api/rf/status")
 async def rf_status():
-    status = (
-        mmdvm_process_manager
-        .status()
-    )
-
-    apply_mmdvm_status(
-        status
-    )
-
-    return runtime_state
+    return refresh_status()
 
 
 @app.post("/api/rf/start")
 async def rf_start(
     request: RFStartRequest,
 ):
-    if (
-        mmdvm_process_manager
-        .is_running
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "RF runtime is already active"
-            ),
-        )
-
-    device = get_rf_device(
-        request.device_id
-    )
-
-    if (
-        device is None
-        or not device.get(
-            "available",
-            False,
-        )
-        or not device.get(
-            "probe_ok",
-            False,
-        )
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"RF device "
-                f"{request.device_id} "
-                f"is not available"
-            ),
-        )
-
-    request_data = (
-        request.model_dump()
-    )
-
+    request_data = request.model_dump()
+    device_id = request_data.pop("device_id")
     try:
-        validate_runtime_mode(
+        return start_rf_runtime(
             request.protocol,
             request_data,
+            device_id,
         )
-
-        validate_device_frequency(
-            device,
-            int(
-                request_data[
-                    "frequency_hz"
-                ]
-            ),
-        )
-
-    except ValueError as error:
+    except RFControlError as error:
         raise HTTPException(
-            status_code=400,
+            status_code=error.status_code,
             detail=str(error),
         ) from error
-
-    mode_config_store.save_mode(
-        request.protocol,
-        request_data,
-    )
-
-    try:
-        rf_device_manager.close(
-            request.device_id
-        )
-
-    except Exception:
-        pass
-
-    runtime_state[
-        "protocol"
-    ] = request.protocol
-
-    runtime_state[
-        "device_id"
-    ] = request.device_id
-
-    runtime_state[
-        "config"
-    ] = request_data
-
-    try:
-        status = (
-            mmdvm_process_manager
-            .start(
-                request.protocol,
-                request_data,
-                device=device,
-                callsign=str(
-                    request_data.get("callsign")
-                    or "SP5OPS"
-                ).strip().upper(),
-            )
-        )
-
-    except Exception as error:
-        failed_status = (
-            mmdvm_process_manager
-            .status()
-        )
-
-        apply_mmdvm_status(
-            failed_status
-        )
-
-        runtime_state[
-            "error"
-        ] = str(error)
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(error),
-        ) from error
-
-    apply_mmdvm_status(
-        status
-    )
-
-    runtime_state[
-        "error"
-    ] = None
-
-    return runtime_state
 
 
 @app.post("/api/rf/stop")
 async def rf_stop():
-    status = (
-        mmdvm_process_manager
-        .stop()
-    )
-
-    apply_mmdvm_status(
-        status
-    )
-
-    runtime_state[
-        "protocol"
-    ] = None
-
-    runtime_state[
-        "device_id"
-    ] = None
-
-    runtime_state[
-        "config"
-    ] = None
-
-    runtime_state[
-        "error"
-    ] = None
-
-    return runtime_state
+    return stop_rf_runtime()

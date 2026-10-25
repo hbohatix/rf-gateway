@@ -1207,3 +1207,8 @@
   font-family: var(--mono);
   color: var(--text);
 }
+
+
+.route-rf-warning {
+  color: var(--warn) !important;
+}
