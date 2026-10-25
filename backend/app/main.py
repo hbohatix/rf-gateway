@@ -68,6 +68,17 @@ from app.call_processor import (
     call_processor_manager,
 )
 
+from app.audio_bridge import (
+    get_all_audio_bridge_capabilities,
+)
+
+from app.rf.network_devices import (
+    NETWORK_SDR_TYPES,
+    add_network_device,
+    list_network_devices,
+    remove_network_device,
+)
+
 from app.config_store import (
     mode_config_store,
 )
@@ -97,13 +108,16 @@ from app.routes import (
 )
 
 
-API_VERSION = "0.12.0"
+API_VERSION = "0.13.0"
 
 
 ModeProtocol = Literal[
     "fm",
     "dmr",
     "p25",
+    "ysf",
+    "dstar",
+    "nxdn",
     "tetra",
 ]
 
@@ -208,6 +222,13 @@ class FMModeSettings(BaseModel):
 
     pre_emphasis: bool
 
+    # Linear gain applied to source audio before it reaches MMDVM-Host.
+    audio_gain: float = Field(
+        default=1.0,
+        gt=0,
+        le=8,
+    )
+
 
 class DMRModeSettings(BaseModel):
     protocol: Literal["dmr"]
@@ -234,6 +255,39 @@ class DMRModeSettings(BaseModel):
         gt=0,
     )
 
+    call_type: Literal[
+        "group",
+        "private",
+    ] = "group"
+
+    # AMBE+2 vocoder: OP25 software encoder or a DVSI AMBE-3000 chip.
+    vocoder: Literal[
+        "software",
+        "dv3000_serial",
+        "ambeserver",
+    ] = "software"
+
+    vocoder_device: str | None = None
+
+    vocoder_baud: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    vocoder_host: str | None = None
+
+    vocoder_port: int | None = Field(
+        default=None,
+        gt=0,
+        lt=65536,
+    )
+
+    vocoder_gain_db: float = Field(
+        default=0.0,
+        ge=-20,
+        le=20,
+    )
+
 
 class P25ModeSettings(BaseModel):
     protocol: Literal["p25"]
@@ -258,6 +312,157 @@ class P25ModeSettings(BaseModel):
         "c4fm",
         "cqpsk",
     ]
+
+
+class YSFModeSettings(BaseModel):
+    protocol: Literal["ysf"]
+
+    frequency_hz: int = Field(
+        gt=0,
+    )
+
+    # Source callsign shown on Fusion radios (1-10 characters).
+    callsign: str = Field(
+        min_length=1,
+        max_length=10,
+    )
+
+    destination: str = Field(
+        default="ALL",
+        max_length=10,
+    )
+
+    dg_id: int = Field(
+        default=0,
+        ge=0,
+        le=99,
+    )
+
+    low_deviation: bool = False
+
+    vocoder: Literal[
+        "software",
+        "dv3000_serial",
+        "ambeserver",
+    ] = "software"
+
+    vocoder_device: str | None = None
+
+    vocoder_baud: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    vocoder_host: str | None = None
+
+    vocoder_port: int | None = Field(
+        default=None,
+        gt=0,
+        lt=65536,
+    )
+
+    vocoder_gain_db: float = Field(
+        default=0.0,
+        ge=-20,
+        le=20,
+    )
+
+
+class DStarModeSettings(BaseModel):
+    protocol: Literal["dstar"]
+
+    frequency_hz: int = Field(
+        gt=0,
+    )
+
+    # Station callsign (MY), also used as the MMDVM-Host callsign.
+    callsign: str = Field(
+        min_length=3,
+        max_length=8,
+    )
+
+    suffix: str = Field(
+        default="RFGW",
+        max_length=4,
+    )
+
+    your_call: str = Field(
+        default="CQCQCQ",
+        max_length=8,
+    )
+
+    module: str = Field(
+        default="B",
+        min_length=1,
+        max_length=1,
+    )
+
+    message: str = Field(
+        default="RF Gateway",
+        max_length=20,
+    )
+
+    vocoder_gain_db: float = Field(
+        default=0.0,
+        ge=-20,
+        le=20,
+    )
+
+
+class NXDNModeSettings(BaseModel):
+    protocol: Literal["nxdn"]
+
+    frequency_hz: int = Field(
+        gt=0,
+    )
+
+    ran: int = Field(
+        default=1,
+        ge=0,
+        le=63,
+    )
+
+    talkgroup: int = Field(
+        ge=0,
+        le=65535,
+    )
+
+    radio_id: int = Field(
+        gt=0,
+        le=65519,
+    )
+
+    call_type: Literal[
+        "group",
+        "private",
+    ] = "group"
+
+    vocoder: Literal[
+        "software",
+        "dv3000_serial",
+        "ambeserver",
+    ] = "software"
+
+    vocoder_device: str | None = None
+
+    vocoder_baud: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    vocoder_host: str | None = None
+
+    vocoder_port: int | None = Field(
+        default=None,
+        gt=0,
+        lt=65536,
+    )
+
+    vocoder_gain_db: float = Field(
+        default=0.0,
+        ge=-20,
+        le=20,
+    )
 
 
 class TETRAModeSettings(BaseModel):
@@ -294,6 +499,9 @@ ModeSettingsRequest = Annotated[
         FMModeSettings,
         DMRModeSettings,
         P25ModeSettings,
+        YSFModeSettings,
+        DStarModeSettings,
+        NXDNModeSettings,
         TETRAModeSettings,
     ],
     Field(
@@ -320,6 +528,24 @@ class P25StartRequest(P25ModeSettings):
     )
 
 
+class YSFStartRequest(YSFModeSettings):
+    device_id: str = Field(
+        min_length=1,
+    )
+
+
+class DStarStartRequest(DStarModeSettings):
+    device_id: str = Field(
+        min_length=1,
+    )
+
+
+class NXDNStartRequest(NXDNModeSettings):
+    device_id: str = Field(
+        min_length=1,
+    )
+
+
 class TETRAStartRequest(TETRAModeSettings):
     device_id: str = Field(
         min_length=1,
@@ -331,6 +557,9 @@ RFStartRequest = Annotated[
         FMStartRequest,
         DMRStartRequest,
         P25StartRequest,
+        YSFStartRequest,
+        DStarStartRequest,
+        NXDNStartRequest,
         TETRAStartRequest,
     ],
     Field(
@@ -522,6 +751,75 @@ def save_mode_config(
         "protocol": protocol,
         "config": saved,
     }
+
+
+@app.get("/api/voice/capabilities")
+def get_voice_capabilities():
+    """Which protocols can carry source audio right now, and why not."""
+    return get_all_audio_bridge_capabilities()
+
+
+class NetworkSDRRequest(BaseModel):
+    sdr_type: Literal[
+        "plutosdr",
+        "libresdr",
+        "limesdr",
+        "limemini",
+        "usrp",
+    ]
+
+    uri: str = Field(
+        default="",
+        max_length=200,
+    )
+
+    label: str | None = Field(
+        default=None,
+        max_length=60,
+    )
+
+    rx_gain: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
+    tx_gain: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
+
+@app.get("/api/devices/network")
+def get_network_sdr_devices():
+    """Registered network SDR transmitters (PlutoSDR, LibreSDR, Lime, USRP)."""
+    return {
+        "types": NETWORK_SDR_TYPES,
+        "devices": list_network_devices(),
+    }
+
+
+@app.post("/api/devices/network")
+def add_network_sdr_device(request: NetworkSDRRequest):
+    payload = {
+        key: value
+        for key, value in request.model_dump().items()
+        if value is not None
+    }
+    try:
+        return add_network_device(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/devices/network/{device_id}")
+def delete_network_sdr_device(device_id: str):
+    if runtime_state.get("device_id") == device_id and mmdvm_process_manager.is_running:
+        raise HTTPException(status_code=409, detail="Stop the RF runtime before removing its device")
+    if not remove_network_device(device_id):
+        raise HTTPException(status_code=404, detail="Network SDR not found")
+    return {"deleted": True, "id": device_id}
 
 
 @app.get("/api/devices")
@@ -932,7 +1230,10 @@ async def rf_start(
                 request.protocol,
                 request_data,
                 device=device,
-                callsign="SP5OPS",
+                callsign=str(
+                    request_data.get("callsign")
+                    or "SP5OPS"
+                ).strip().upper(),
             )
         )
 

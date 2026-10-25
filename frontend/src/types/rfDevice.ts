@@ -1,4 +1,8 @@
 export type RFDeviceCapabilities = {
+  soapy_type?: string;
+  soapy_uri?: string;
+  rx_gain_db?: number;
+  tx_gain_db?: number;
   hardware_version?: string;
   clock?: string;
 

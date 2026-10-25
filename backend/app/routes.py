@@ -66,6 +66,17 @@ from app.sources import (
     register_calls_selection,
 )
 from app.direct_audio_client import validate_direct_audio_url
+from app.voice.registry import STREAMING_PROTOCOLS, supports_streaming
+from app.remote_sdr import parse_remote_sdr_url, probe_remote_sdr
+from app.sources import looks_like_remote_sdr_url
+
+
+# Sources that deliver continuous audio through the Live Audio pipeline.
+CONTINUOUS_SOURCE_TYPES = (
+    "broadcastify_live_audio",
+    "direct_audio",
+    "remote_sdr",
+)
 
 
 router = APIRouter(
@@ -78,6 +89,9 @@ Protocol = Literal[
     "fm",
     "dmr",
     "p25",
+    "ysf",
+    "dstar",
+    "nxdn",
     "tetra",
 ]
 
@@ -143,7 +157,8 @@ class RouteSetupRequest(BaseModel):
     source_id: str | None = None
     source_url: str | None = Field(default=None, max_length=2048)
     source_type: Literal[
-        "auto", "broadcastify_calls", "broadcastify_live_audio", "direct_audio"
+        "auto", "broadcastify_calls", "broadcastify_live_audio", "direct_audio",
+        "remote_sdr",
     ] = "auto"
     playlist_uuid: str | None = None
     group_ids: list[str] | None = None
@@ -473,6 +488,12 @@ def run_preflight(
     ):
         source["probe"] = probe_direct_audio(source["url"])
 
+    if (
+        route.get("enabled", False)
+        and source.get("type") == "remote_sdr"
+    ):
+        source["probe"] = probe_remote_sdr(source["url"])
+
     # A reachable Broadcastify page and an installed decoder do
     # not guarantee that an HLS listening session is available.
     # Check only when a live-audio route is explicitly preflighted.
@@ -655,14 +676,17 @@ def start_source_pipeline(
         }
 
 
-    if source_type in ("broadcastify_live_audio", "direct_audio"):
-        if protocol != "p25":
+    if source_type in CONTINUOUS_SOURCE_TYPES:
+        if not supports_streaming(protocol):
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Continuous Live Audio "
-                    "currently supports "
-                    "P25 routes only"
+                    "Continuous audio sources "
+                    "support protocols: "
+                    + ", ".join(
+                        p.upper()
+                        for p in STREAMING_PROTOCOLS
+                    )
                 ),
             )
 
@@ -816,7 +840,7 @@ def source_pipeline_running(
         )
 
 
-    if source_type in ("broadcastify_live_audio", "direct_audio"):
+    if source_type in CONTINUOUS_SOURCE_TYPES:
         live_audio = (
             result.get(
                 "live_audio"
@@ -1135,7 +1159,17 @@ def resolve_setup_source(request: RouteSetupRequest) -> tuple[dict, bool]:
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    if request.source_type == "direct_audio":
+    if request.source_type == "remote_sdr" or (
+        request.source_type == "auto" and looks_like_remote_sdr_url(source_url)
+    ):
+        try:
+            remote = parse_remote_sdr_url(source_url)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        parsed = {"source_type": "remote_sdr", "canonical_url": remote.url}
+        if not request.name:
+            request.name = remote.describe()
+    elif request.source_type == "direct_audio":
         try:
             direct_url = validate_direct_audio_url(source_url)
         except ValueError as error:

@@ -38,6 +38,11 @@ from app.audio_decoder import (
     audio_decoder,
 )
 
+from app.remote_sdr import (
+    parse_remote_sdr_url,
+    probe_remote_sdr,
+)
+
 from app.direct_audio_client import (
     validate_direct_audio_url,
 )
@@ -126,8 +131,26 @@ SUPPORTED_SOURCE_TYPES = {
     "broadcastify_calls",
     "broadcastify_live_audio",
     "direct_audio",
+    "remote_sdr",
     "auto",
 }
+
+
+REMOTE_SDR_SCHEMES = (
+    "rtl_tcp://",
+    "rtltcp://",
+    "kiwisdr://",
+    "kiwi://",
+    "udp://",
+    "tcp://",
+    "rtsp://",
+    "rtp://",
+    "srt://",
+)
+
+
+def looks_like_remote_sdr_url(url: str) -> bool:
+    return (url or "").strip().lower().startswith(REMOTE_SDR_SCHEMES)
 
 
 class BroadcastifyProbeRequest(
@@ -1212,6 +1235,10 @@ def apply_current_audio_api_status(
     )
 
 
+    if source_type == "remote_sdr":
+        current["probe"] = probe
+        return current
+
     if source_type == "direct_audio":
         probe["audio_api_configured"] = bool(shutil.which("ffmpeg"))
         probe["playback_state"] = (
@@ -1754,6 +1781,15 @@ def probe_broadcastify_endpoint(
         ) from error
 
 
+@router.post("/remote-sdr/probe")
+def probe_remote_sdr_endpoint(request: BroadcastifyProbeRequest):
+    """Check a remote SDR URL (rtl_tcp, KiwiSDR or SDR audio stream)."""
+    try:
+        return probe_remote_sdr(request.url)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @router.post("/direct-audio/probe")
 def probe_direct_audio_endpoint(request: BroadcastifyProbeRequest):
     try:
@@ -1783,17 +1819,26 @@ def create_source(
             detail=(
                 "Supported source types are "
                 "broadcastify_calls, "
-                "broadcastify_live_audio and direct_audio"
+                "broadcastify_live_audio, direct_audio "
+                "and remote_sdr"
             ),
         )
 
 
+    if (
+        requested_type == "auto"
+        and looks_like_remote_sdr_url(request.url)
+    ):
+        requested_type = "remote_sdr"
+
+
     try:
-        probe = (
-            probe_direct_audio(request.url)
-            if requested_type == "direct_audio"
-            else probe_broadcastify(request.url)
-        )
+        if requested_type == "remote_sdr":
+            probe = probe_remote_sdr(request.url)
+        elif requested_type == "direct_audio":
+            probe = probe_direct_audio(request.url)
+        else:
+            probe = probe_broadcastify(request.url)
 
 
     except ValueError as error:
@@ -1898,6 +1943,9 @@ def create_source(
             ]
         )
 
+    elif source_type == "remote_sdr":
+        source["remote_sdr"] = probe.get("remote_sdr")
+
 
     store = (
         load_store()
@@ -1946,11 +1994,12 @@ def probe_existing_source(
         }
 
     try:
-        probe = (
-            probe_direct_audio(source["url"])
-            if source.get("type") == "direct_audio"
-            else probe_broadcastify(source["url"])
-        )
+        if source.get("type") == "remote_sdr":
+            probe = probe_remote_sdr(source["url"])
+        elif source.get("type") == "direct_audio":
+            probe = probe_direct_audio(source["url"])
+        else:
+            probe = probe_broadcastify(source["url"])
 
 
     except ValueError as error:

@@ -9,6 +9,10 @@ import time
 from pathlib import Path
 from typing import Any, TextIO
 
+from app.rf.network_devices import (
+    render_mmdvm_iq_config,
+)
+
 from app.rf.soapysdr import (
     mark_driver_closed,
     mark_driver_open,
@@ -937,12 +941,32 @@ class MMDVMProcessManager:
                         )
                     ).strip()
 
-                    if driver:
+                    # Network SDRs are not local Soapy drivers; only
+                    # local hardware is marked as owned by the runtime.
+                    if driver and backend != "soapysdr_network":
                         mark_driver_open(
                             driver
                         )
                         self._open_driver = (
                             driver
+                        )
+
+                    iq_config_path = MMDVM_IQ_CONFIG
+
+                    if backend == "soapysdr_network":
+                        iq_config_path = (
+                            RUNTIME_DIR
+                            / "MMDVM-IQ.ini"
+                        )
+
+                        iq_config_path.write_text(
+                            render_mmdvm_iq_config(
+                                MMDVM_IQ_CONFIG.read_text(
+                                    encoding="utf-8",
+                                ),
+                                device,
+                            ),
+                            encoding="utf-8",
                         )
 
                     self._iq_log_handle = (
@@ -960,7 +984,7 @@ class MMDVMProcessManager:
                                     MMDVM_IQ_BINARY
                                 ),
                                 str(
-                                    MMDVM_IQ_CONFIG
+                                    iq_config_path
                                 ),
                             ],
                             cwd=str(

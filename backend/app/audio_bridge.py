@@ -34,10 +34,20 @@ from app.p25_network_sender import (
 )
 
 
+from app.voice.base import VoiceSessionError
+from app.voice.registry import (
+    create_voice_session,
+    voice_bridge_capability,
+)
+
+
 Protocol = Literal[
     "fm",
     "dmr",
     "p25",
+    "ysf",
+    "dstar",
+    "nxdn",
     "tetra",
 ]
 
@@ -305,6 +315,13 @@ def get_audio_bridge_capability(
         )
     )
 
+    voice_capability = voice_bridge_capability(
+        normalized_protocol
+    )
+
+    if voice_capability is not None:
+        return voice_capability
+
     capability = (
         CAPABILITIES.get(
             normalized_protocol
@@ -386,7 +403,7 @@ def get_all_audio_bridge_capabilities() -> dict:
             )
 
         for protocol
-        in CAPABILITIES
+        in ("fm", "dmr", "ysf", "dstar", "nxdn", "p25", "tetra")
     }
 
 
@@ -1079,6 +1096,19 @@ def bridge_decoded_audio(
         )
     )
 
+    if normalized_protocol in (
+        "dmr",
+        "fm",
+        "ysf",
+        "dstar",
+        "nxdn",
+    ):
+        return _stream_decoded_audio(
+            normalized_protocol,
+            decoded_audio,
+            mode_config=mode_config,
+        )
+
     if (
         normalized_protocol
         != "p25"
@@ -1116,3 +1146,48 @@ def bridge_decoded_audio(
     )
 
     return result.status()
+
+
+def _stream_decoded_audio(
+    protocol: str,
+    decoded_audio: Any,
+    *,
+    mode_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Send one decoded call through a DMR/FM streaming session."""
+    capability = get_audio_bridge_capability(protocol)
+    if capability.get("bridge_state") != "ready":
+        raise AudioBridgeUnavailableError(
+            capability.get("blocking_reason")
+            or f"Audio bridge is not ready for protocol {protocol}"
+        )
+
+    pcm = getattr(decoded_audio, "pcm", None)
+    if not isinstance(pcm, (bytes, bytearray)) or not pcm:
+        raise AudioBridgeInputError("Decoded audio does not contain PCM bytes")
+    if getattr(decoded_audio, "sample_rate", None) != PCM_SAMPLE_RATE:
+        raise AudioBridgeInputError(f"{protocol.upper()} bridge requires {PCM_SAMPLE_RATE} Hz PCM")
+    if getattr(decoded_audio, "channels", None) != PCM_CHANNELS:
+        raise AudioBridgeInputError(f"{protocol.upper()} bridge requires mono PCM")
+    if getattr(decoded_audio, "sample_width_bytes", None) != PCM_SAMPLE_WIDTH_BYTES:
+        raise AudioBridgeInputError(f"{protocol.upper()} bridge requires 16-bit PCM")
+
+    started = time.monotonic()
+    session = create_voice_session(protocol, mode_config=mode_config)
+    try:
+        session.start()
+        session.feed_pcm(bytes(pcm))
+        status = session.end()
+    except VoiceSessionError as error:
+        raise AudioBridgeError(str(error)) from error
+    finally:
+        session.close()
+
+    return {
+        "protocol": protocol,
+        "pcm_bytes": len(pcm),
+        "duration_seconds": len(pcm) / (PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH_BYTES),
+        "transmitted_duration_seconds": time.monotonic() - started,
+        "network_records_sent": status.get("network_records_sent"),
+        "session": status,
+    }

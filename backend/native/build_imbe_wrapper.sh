@@ -69,7 +69,7 @@ fi
 
 
 mapfile -t VOCODER_SOURCES < <(
-    find "${VOCODER_DIR}" \
+    find -L "${VOCODER_DIR}" \
         -maxdepth 1 \
         -type f \
         -name '*.cc' \

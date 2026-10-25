@@ -10,7 +10,7 @@
   padding: 24px;
 
   background:
-    rgba(3, 7, 11, 0.82);
+    color-mix(in srgb, var(--bg3) 82%, transparent);
 
   backdrop-filter:
     blur(5px);
@@ -27,20 +27,20 @@
   overflow-y: auto;
 
   border:
-    1px solid #34404c;
+    1px solid var(--bg4);
 
   border-radius:
     7px;
 
   background:
-    #151b21;
+    var(--bg2);
 
   box-shadow:
     0 28px 90px
-    rgba(0, 0, 0, 0.62);
+    color-mix(in srgb, var(--bg3) 62%, transparent);
 
   color:
-    #eef3f7;
+    var(--text);
 }
 
 
@@ -55,7 +55,7 @@
     22px 26px 18px;
 
   border-bottom:
-    1px solid #2e3944;
+    1px solid var(--bg4);
 }
 
 
@@ -75,7 +75,7 @@
     4px 0 0;
 
   color:
-    #8797a9;
+    var(--text2);
 
   font-size:
     12px;
@@ -90,22 +90,22 @@
     8px 14px;
 
   border:
-    1px solid #485664;
+    1px solid var(--text3);
 
   border-radius:
     4px;
 
   background:
-    #20272f;
+    var(--bg3);
 
   color:
-    #dce4eb;
+    var(--text);
 }
 
 
 .cal-close:hover:not(:disabled) {
   background:
-    #29323b;
+    var(--bg4);
 }
 
 
@@ -122,10 +122,10 @@
     0;
 
   border-bottom:
-    1px solid #2e3944;
+    1px solid var(--bg4);
 
   background:
-    #10161c;
+    var(--bg2);
 }
 
 
@@ -141,7 +141,7 @@
     14px 20px;
 
   border-right:
-    1px solid #29343e;
+    1px solid var(--bg4);
 }
 
 
@@ -163,7 +163,7 @@
 
 .cal-status-label {
   color:
-    #77889a;
+    var(--text2);
 
   font-size:
     10px;
@@ -184,7 +184,7 @@
     hidden;
 
   color:
-    #e9eef3;
+    var(--text);
 
   font-size:
     13px;
@@ -208,54 +208,54 @@
     0 0 9px;
 
   border:
-    1px solid #566270;
+    1px solid var(--text3);
 
   border-radius:
     50%;
 
   background:
-    #323c46;
+    var(--bg4);
 }
 
 
 .cal-dot-ok {
   border-color:
-    #25aa4b;
+    var(--accent);
 
   background:
-    #35db60;
+    var(--accent);
 
   box-shadow:
     0 0 7px
-    rgba(53, 219, 96, 0.38);
+    color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
 
 .cal-dot-idle {
   border-color:
-    #687787;
+    var(--text3);
 
   background:
-    #2e3944;
+    var(--bg4);
 }
 
 
 .cal-dot-tx {
   border-color:
-    #ff514c;
+    var(--danger);
 
   background:
-    #ff625d;
+    var(--danger);
 
   box-shadow:
     0 0 9px
-    rgba(255, 98, 93, 0.55);
+    color-mix(in srgb, var(--danger) 55%, transparent);
 }
 
 
 .cal-text-tx {
   color:
-    #ff706b
+    var(--danger)
     !important;
 }
 
@@ -273,10 +273,10 @@
     18px 26px 0;
 
   border:
-    1px solid #2c3741;
+    1px solid var(--bg4);
 
   background:
-    #10161b;
+    var(--bg2);
 }
 
 
@@ -291,7 +291,7 @@
     11px 14px;
 
   border-right:
-    1px solid #2c3741;
+    1px solid var(--bg4);
 }
 
 
@@ -303,7 +303,7 @@
 
 .cal-rf-line span {
   color:
-    #728295;
+    var(--text2);
 
   font-size:
     9px;
@@ -318,7 +318,7 @@
 
 .cal-rf-line strong {
   color:
-    #f1f4f7;
+    var(--text);
 
   font-size:
     12px;
@@ -333,10 +333,10 @@
     18px;
 
   border-top:
-    1px solid #303b46;
+    1px solid var(--bg4);
 
   background:
-    #13191f;
+    var(--bg2);
 }
 
 
@@ -359,7 +359,7 @@
     3px;
 
   color:
-    #6f8092;
+    var(--text2);
 
   font-size:
     9px;
@@ -376,7 +376,7 @@
   margin: 0;
 
   color:
-    #edf2f6;
+    var(--text);
 
   font-size:
     15px;
@@ -388,13 +388,13 @@
     4px 7px;
 
   border:
-    1px solid #46515c;
+    1px solid var(--text3);
 
   border-radius:
     3px;
 
   color:
-    #9dabba;
+    var(--text2);
 
   font-size:
     9px;
@@ -430,7 +430,7 @@
 
 .cal-field span {
   color:
-    #91a0af;
+    var(--text2);
 
   font-size:
     11px;
@@ -450,7 +450,7 @@
     0 11px;
 
   border:
-    1px solid #36434f;
+    1px solid var(--bg4);
 
   border-radius:
     3px;
@@ -459,10 +459,10 @@
     none;
 
   background:
-    #0d1318;
+    var(--bg2);
 
   color:
-    #f3f6f8;
+    var(--text);
 
   font-family:
     inherit;
@@ -474,7 +474,7 @@
 
 .cal-field input:focus {
   border-color:
-    #4d96e6;
+    var(--accent2);
 }
 
 
@@ -495,16 +495,16 @@
     0 17px;
 
   border:
-    1px solid #269444;
+    1px solid var(--accent);
 
   border-radius:
     3px;
 
   background:
-    #167f31;
+    var(--bg4);
 
   color:
-    #ffffff;
+    var(--text);
 
   font-size:
     12px;
@@ -519,7 +519,7 @@
 
 .cal-send:hover:not(:disabled) {
   background:
-    #1a9238;
+    var(--accent);
 }
 
 
@@ -534,10 +534,10 @@
 
 .cal-send-active {
   border-color:
-    #d54b46;
+    var(--danger);
 
   background:
-    #9c2d29;
+    var(--danger);
 }
 
 
@@ -551,7 +551,7 @@
     11px;
 
   color:
-    #a7a083;
+    var(--text2);
 
   font-size:
     11px;
@@ -563,7 +563,7 @@
 
 .cal-warning-line > span {
   color:
-    #d4ad42;
+    var(--warn);
 }
 
 
@@ -574,7 +574,7 @@
 
 .cal-warning-line strong {
   color:
-    #d8d2b6;
+    var(--text);
 }
 
 
@@ -589,16 +589,16 @@
     4px 8px;
 
   border:
-    1px solid #46515c;
+    1px solid var(--text3);
 
   border-radius:
     3px;
 
   background:
-    #202831;
+    var(--bg3);
 
   color:
-    #b8c2cc;
+    var(--text);
 
   font-size:
     9px;
@@ -613,49 +613,49 @@
 
 .cal-result-state-ok {
   border-color:
-    #258a42;
+    var(--accent);
 
   background:
-    #143c21;
+    var(--bg3);
 
   color:
-    #51dc72;
+    var(--accent);
 }
 
 
 .cal-result-state-tx {
   border-color:
-    #ba4945;
+    var(--danger);
 
   background:
-    #4a1d1b;
+    var(--bg4);
 
   color:
-    #ff716c;
+    var(--danger);
 }
 
 
 .cal-result-state-warning {
   border-color:
-    #856d2b;
+    var(--warn);
 
   background:
-    #3a3217;
+    var(--bg3);
 
   color:
-    #e4ca69;
+    var(--warn);
 }
 
 
 .cal-result-state-error {
   border-color:
-    #913a38;
+    var(--danger);
 
   background:
-    #401919;
+    var(--bg3);
 
   color:
-    #ff7772;
+    var(--danger);
 }
 
 
@@ -668,10 +668,10 @@
     1fr;
 
   border:
-    1px solid #2b3640;
+    1px solid var(--bg4);
 
   background:
-    #0f151a;
+    var(--bg2);
 }
 
 
@@ -687,7 +687,7 @@
     10px 12px;
 
   border-right:
-    1px solid #2b3640;
+    1px solid var(--bg4);
 }
 
 
@@ -699,7 +699,7 @@
 
 .cal-result-summary span {
   color:
-    #718194;
+    var(--text2);
 
   font-size:
     9px;
@@ -717,7 +717,7 @@
     hidden;
 
   color:
-    #ecf1f5;
+    var(--text);
 
   font-size:
     12px;
@@ -745,7 +745,7 @@
     10px;
 
   color:
-    #9eacba;
+    var(--text2);
 
   font-size:
     11px;
@@ -766,10 +766,10 @@
     18px 26px 0;
 
   border-top:
-    1px solid #303b46;
+    1px solid var(--bg4);
 
   border-bottom:
-    1px solid #303b46;
+    1px solid var(--bg4);
 }
 
 
@@ -781,7 +781,7 @@
     10px 14px 10px 0;
 
   color:
-    #8999aa;
+    var(--text2);
 
   font-size:
     11px;
@@ -802,13 +802,13 @@
     10px 12px;
 
   border-left:
-    1px solid #2a3540;
+    1px solid var(--bg4);
 }
 
 
 .cal-measurement span {
   color:
-    #738396;
+    var(--text2);
 
   font-size:
     9px;
@@ -820,7 +820,7 @@
 
 .cal-measurement strong {
   color:
-    #d7dfe6;
+    var(--text);
 
   font-size:
     11px;
@@ -832,7 +832,7 @@
     12px 26px 20px;
 
   color:
-    #687789;
+    var(--text3);
 
   font-size:
     10px;
@@ -877,7 +877,7 @@
       none;
 
     border-bottom:
-      1px solid #2c3741;
+      1px solid var(--bg4);
   }
 
 
@@ -910,7 +910,7 @@
       none;
 
     border-bottom:
-      1px solid #2b3640;
+      1px solid var(--bg4);
   }
 
 
@@ -937,9 +937,31 @@
 
   .cal-measurement {
     border:
-      1px solid #2a3540;
+      1px solid var(--bg4);
 
     border-bottom:
       none;
   }
+}
+
+
+/* ── FlowStation look (theme tokens) ───────────────────────────────────── */
+
+.cal-overlay {
+  background: color-mix(in srgb, #000 65%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.cal-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.cal-section-kicker,
+.cal-status-label,
+.cal-measurements-title {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--text3);
 }
