@@ -1092,6 +1092,15 @@ Delete a source.
 
 ## Unified Route Setup (recommended)
 
+**Route protocol and the RF runtime.** MMDVM-Host runs one mode at a time and only listens on that mode's network port, so a route's audio reaches the air only when the RF runtime runs the route's protocol on the route's RF device. **Start** on a route takes care of this:
+
+- RF runtime stopped → it is started in the route's protocol, using the settings saved on the RF Output page;
+- RF runtime running another protocol and no other route running → it is switched to the route's protocol;
+- another route is already running → the start is refused with an explanation (one route per transmitter).
+
+Each route card shows `RF OUTPUT: … · ROUTE: …` and what Start will do. Starting the RF runtime by hand in a protocol that differs from a running route is refused. A route only reserves its RF device while it is running; passing preflight no longer blocks other routes.
+
+
 The **Routes** panel is now the primary workflow. In one form, paste a Broadcastify Calls playlist or Live Audio feed URL (or choose an existing source), select the RF device and protocol, then choose **Create Route** or explicitly opt into **Create & Start**. The **Sources** panel remains accessible as an advanced section for manual probing/deletion.
 
 The backend preserves existing `sources.json`, `routes.yaml`, and old API endpoints; **no migration or duplicate manual activation** is necessary. An existing source with the same normalized URL is reused.

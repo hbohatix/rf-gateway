@@ -935,6 +935,7 @@ function RoutesPanel({
 
   // A route-specific failure must not look like a global Calls API outage.
   const [routeActionErrors, setRouteActionErrors] = useState<Record<string, string>>({});
+  const [routeNotices, setRouteNotices] = useState<Record<string, string>>({});
 
   const [
     actionRouteId,
@@ -1886,11 +1887,23 @@ function RoutesPanel({
         if (data && data.started === false) {
           const runtime = data.runtime as RouteRuntimeStatus | undefined;
           throw new Error(
+            (typeof data.message === "string" && data.message.startsWith("RF runtime:") ? data.message : null) ||
             runtime?.error ||
             runtime?.blocked_reason ||
             getApiError(data, "Route did not start")
           );
         }
+
+        const rfMessage = data && typeof data.rf_runtime_message === "string" ? data.rf_runtime_message : null;
+        setRouteNotices((current) => {
+          const next = { ...current };
+          if (rfMessage) {
+            next[route.id] = rfMessage;
+          } else {
+            delete next[route.id];
+          }
+          return next;
+        });
 
         await loadRuntimeStatus(
           route.id
@@ -2949,17 +2962,17 @@ function RoutesPanel({
                                   <strong>{processor?.audio_decode_count ?? 0}</strong>
                                 </div>
                                 <div>
-                                  <span>P25 handoffs</span>
+                                  <span>{(route.protocol ?? "p25").toUpperCase()} handoffs</span>
                                   <strong>{processor?.audio_bridge_count ?? 0}</strong>
                                 </div>
                                 <div>
-                                  <span>Last P25 records</span>
+                                  <span>Last {(route.protocol ?? "p25").toUpperCase()} records</span>
                                   <strong>{isLiveAudio ? ((liveAudio?.voice ?? liveAudio?.p25)?.network_records_sent ?? 0) : (processor?.last_audio_bridge_result?.network_records ?? 0)}</strong>
                                 </div>
                               </div>
 
                               <div className="route-worker__hint">
-                                P25 handoff = sent toward MMDVM; RF transmission is not confirmed.
+                                Handoff = sent toward MMDVM-Host; RF transmission is not confirmed.
                               </div>
 
                               {processor?.error && (
@@ -3111,6 +3124,36 @@ function RoutesPanel({
                               </div>
                             </div>
 
+
+                            {runtime?.rf_runtime && (
+                              <div
+                                className={
+                                  runtime.rf_runtime.matches
+                                    ? "route-worker__hint"
+                                    : runtime.rf_runtime.action === "blocked"
+                                      ? "route-worker__error"
+                                      : "route-worker__hint route-rf-warning"
+                                }
+                              >
+                                RF OUTPUT:{" "}
+                                {runtime.rf_runtime.runtime_active
+                                  ? String(runtime.rf_runtime.runtime_protocol ?? "").toUpperCase()
+                                  : "STOPPED"}
+                                {" · ROUTE: "}
+                                {runtime.rf_runtime.route_protocol.toUpperCase()}
+                                {runtime.rf_runtime.matches
+                                  ? " · OK"
+                                  : runtime.rf_runtime.message
+                                    ? ` · ${runtime.rf_runtime.message}`
+                                    : ""}
+                              </div>
+                            )}
+
+                            {routeNotices[route.id] && (
+                              <div className="route-worker__hint">
+                                {routeNotices[route.id]}
+                              </div>
+                            )}
 
                             {runtime?.blocked_reason && (
                               <div className="route-worker__error">

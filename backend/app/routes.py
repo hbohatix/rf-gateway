@@ -67,6 +67,7 @@ from app.sources import (
 )
 from app.direct_audio_client import validate_direct_audio_url
 from app.voice.registry import STREAMING_PROTOCOLS, supports_streaming
+from app.rf_control import RFControlError, ensure_rf_runtime_for_route, plan_for_route
 from app.remote_sdr import parse_remote_sdr_url, probe_remote_sdr
 from app.sources import looks_like_remote_sdr_url
 
@@ -522,7 +523,7 @@ def run_preflight(
                 "playback_error": str(error),
             }
 
-    return (
+    runtime = (
         route_runtime_manager
         .preflight(
             route=route,
@@ -531,6 +532,24 @@ def run_preflight(
             mode_config=mode_config,
         )
     )
+
+    # Routes only reach the air when MMDVM runs the route's protocol on the
+    # route's device; report what START will do with the RF runtime.
+    plan = plan_for_route(route)
+    runtime["rf_runtime"] = plan
+
+    if (
+        runtime.get("state") == "ready"
+        and plan["action"] == "blocked"
+    ):
+        runtime = route_runtime_manager.mark_blocked(
+            route["id"],
+            "rf_runtime_busy",
+            plan["message"],
+        )
+        runtime["rf_runtime"] = plan
+
+    return runtime
 
 
 def get_worker_status(
@@ -1352,16 +1371,15 @@ def get_route(
 def get_route_runtime(
     route_id: str,
 ):
-    get_route_or_404(
+    route = get_route_or_404(
         route_id
     )
 
     return {
-        "runtime":
-            route_runtime_manager
-            .get(
-                route_id
-            ),
+        "runtime": {
+            **route_runtime_manager.get(route_id),
+            "rf_runtime": plan_for_route(route),
+        },
         "rf_tx": live_rf_tx_status(),
 
         "worker":
@@ -1776,6 +1794,29 @@ def start_route(
                 ),
         }
 
+    # Bring the RF runtime to the route's protocol and device first;
+    # otherwise MMDVM-Host would silently ignore the route's audio.
+    try:
+        rf_plan = ensure_rf_runtime_for_route(route)
+    except RFControlError as error:
+        runtime = route_runtime_manager.mark_error(
+            route_id,
+            str(error),
+        )
+        return {
+            "started": False,
+            "worker_started": False,
+            "processor_started": False,
+            "live_audio_started": False,
+            "route": route,
+            "runtime": runtime,
+            "worker": get_worker_status(route_id),
+            "processor": get_processor_status(route_id),
+            "live_audio": get_live_audio_status(route_id),
+            "queue": get_queue_status(route_id),
+            "message": f"RF runtime: {error}",
+        }
+
     source = (
         get_source_or_404(
             route[
@@ -1967,9 +2008,17 @@ def start_route(
         ) from error
 
 
+    runtime = {
+        **runtime,
+        "rf_runtime": rf_plan,
+    }
+
     return {
         "started":
             True,
+
+        "rf_runtime_message":
+            rf_plan.get("message"),
 
         "source_type":
             source_type,
