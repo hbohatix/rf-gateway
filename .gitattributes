@@ -19,3 +19,5 @@
 *.md text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+# Extension-less shell scripts
+scripts/rf-gateway text eol=lf

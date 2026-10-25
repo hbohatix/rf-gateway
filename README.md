@@ -332,6 +332,7 @@ rf-gateway/
 │   └── vite.config.ts
 ├── scripts/
 │   ├── install-debian.sh
+│   ├── rf-gateway
 │   └── run-dev.sh
 ├── third_party/
 │   ├── MMDVM-Host/
@@ -603,23 +604,63 @@ The backend loads `backend/.env` at startup.
 
 # Running RF Gateway
 
-## Development mode
-
-The easiest way to start both backend and frontend is:
+One command starts and stops both the FastAPI backend and the web UI:
 
 ```bash
-./scripts/run-dev.sh
+./scripts/rf-gateway start      # start backend + frontend in the background
+./scripts/rf-gateway status     # what is running, health, RF runtime, URLs
+./scripts/rf-gateway stop       # stop both
 ```
 
-The script starts:
+To use it from anywhere as `rf-gateway`, install the command once (it creates `~/.local/bin/rf-gateway`, a link to this checkout's script):
+
+```bash
+./scripts/rf-gateway install
+rf-gateway start
+```
+
+If `rf-gateway` is not found afterwards, open a new login shell, or add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`. `rf-gateway uninstall` removes the link.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `rf-gateway start` | Starts the backend (uvicorn with auto-reload) and the Vite dev server in the background, waits until both answer, then prints the URLs. Does nothing if RF Gateway is already running. |
+| `rf-gateway start --preview` | Builds the frontend (`npm run build`) and serves the build with `vite preview` instead of the dev server; the backend runs without auto-reload. Use this for everyday operation on the Pi. |
+| `rf-gateway stop` | Stops both. The backend gets SIGTERM, so FastAPI shuts down the MMDVM runtime and route pipelines cleanly before exiting; anything still running after 15 s is killed. |
+| `rf-gateway restart [--preview]` | Stop, then start. Without an option it keeps the previous mode. |
+| `rf-gateway status` | Process IDs, ports, `/api/health`, whether the RF runtime is active or transmitting, and the URLs. |
+| `rf-gateway logs [backend\|frontend] [-f]` | Last 50 log lines; `-f` follows them. |
+| `rf-gateway run [--preview]` | Foreground mode: starts both, shows the logs, and Ctrl+C stops both. `./scripts/run-dev.sh` does the same. |
+| `rf-gateway install` / `uninstall` | Adds or removes `~/.local/bin/rf-gateway`. |
+
+After `start`, open the UI at `http://<pi-address>:5173`. The API docs are at `http://<pi-address>:5173/docs` (proxied to the backend).
+
+Files written by the script (all under the git-ignored `backend/data/`):
 
 ```text
-Frontend:   http://localhost:5173
-Backend:    http://localhost:8000
-Swagger UI: http://localhost:8000/docs
+backend/data/runtime/run/backend.pid
+backend/data/runtime/run/frontend.pid
+backend/data/runtime/run/mode               dev or preview
+backend/data/runtime/logs/backend.log
+backend/data/runtime/logs/frontend.log
 ```
 
-Press `Ctrl+C` to stop the development runtime.
+Settings, as environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RFGW_BACKEND_PORT` | `8000` | FastAPI port |
+| `RFGW_FRONTEND_PORT` | `5173` | UI port |
+| `RFGW_HOST` | `0.0.0.0` | Address both servers listen on (use `127.0.0.1` to allow local access only) |
+
+```bash
+RFGW_FRONTEND_PORT=8080 rf-gateway start --preview
+```
+
+If a port is already taken, `start` stops with the name and PID of the process using it. That is often a backend or Vite started by hand: stop it, or find it with `ss -ltnp | grep -E ':8000|:5173'`.
+
+Stopping RF Gateway also stops any active transmission, because the backend shuts the MMDVM runtime down on exit.
 
 ---
 
@@ -1569,7 +1610,7 @@ git submodule status
 # Typical development startup sequence
 
 ```text
-1. Start backend + frontend
+1. Start backend + frontend (rf-gateway start)
 2. Verify SoapySDR device discovery
 3. Save protocol configuration
 4. Start RF/MMDVM runtime
